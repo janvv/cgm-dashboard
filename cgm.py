@@ -17,9 +17,14 @@ class CGMAccess:
         url = 'mongodb://{}:{}@{}:{}/{}'.format(params["user"], params["password"], params["host"], params["port"], params["database"])
         self.client = MongoClient(url, retryWrites=False)
         self.db = self.client[params["database"]]
-        self.df = pd.DataFrame(columns=["timestamp", "glucose"])
+
         self.earlierst_query_time = -1
         self.latest_query_time = -1
+
+        self.DATETIME_COLUMN ="datetime"
+        self.GLUCOSE_COLUMN = "glucose"
+        self.df = pd.DataFrame(columns=[self.DATETIME_COLUMN,self.GLUCOSE_COLUMN])
+
     def update_entries(self, limit_days=0, skip_hours=0):
         """
         :param n: Number of entries to query
@@ -51,12 +56,12 @@ class CGMAccess:
                 #print("QUERYING   : {} - {}".format(t_start, t_end))
                 results = entries.find({"sgv": {"$gt": 0}, "date": {"$gt": t_start*1000, "$lt": t_end*1000}},
                                        ["sgv", "date"], sort=[("date", DESCENDING)])
-                temp = [(r["date"] / 1000, r["sgv"]) for r in results]
+                tuples = [(datetime.fromtimestamp(r["date"] / 1000), r["sgv"]) for r in results]
 
-                if len(temp) > 0:
-                    temp_df = pd.DataFrame(data=temp, columns=["timestamp", "glucose"])
-                    print("queried {} new entries".format(len(temp_df)))
-                    self.df = self.df.append(temp_df, sort=True, ignore_index=True).drop_duplicates()
+                if len(tuples) > 0:
+                    print("queried {} new entries".format(len(tuples)))
+                    temp_df = pd.DataFrame(data=tuples, columns=[self.DATETIME_COLUMN, self.GLUCOSE_COLUMN])
+                    self.df = self.df.append(temp_df, sort=False, ignore_index=True).drop_duplicates()
 
             except errors.PyMongoError as e:
                 self.logger.error("Error while querying for last entries: \n {}".format(e))
@@ -68,14 +73,27 @@ class CGMAccess:
 
 
     def get_entries(self, n_days=14):
-        start_datetime = (datetime.now()-timedelta(days=n_days)).timestamp()
+        start_datetime = (datetime.now()-timedelta(days=n_days))
         #print("getting entries > {}".format(start_datetime))
 
-        temp_df = self.df.loc[self.df.timestamp > start_datetime]
-        temp_df["datetime"] = temp_df.timestamp.apply(lambda x: datetime.fromtimestamp(x,tz=timezone.utc))
-        temp_df["hour"] = temp_df.datetime.apply(lambda x: x.hour + x.minute / 60 + x.second / (60 * 60))
-        temp_df["date"] = temp_df.datetime.apply(lambda x: x.date())
+        temp_df = self.df.loc[self.df[self.DATETIME_COLUMN] > start_datetime].sort_values(self.DATETIME_COLUMN)
+        #temp_df["datetime"] = temp_df.timestamp.apply(lambda x: datetime.fromtimestamp(x,tz=timezone.utc))
+        #temp_df["hour"] = temp_df.datetime.apply(lambda x: x.hour + x.minute / 60 + x.second / (60 * 60))
+        #temp_df["date"] = temp_df.datetime.apply(lambda x: x.date())
         return temp_df
+
+    def get_last_entry(self):
+        return self.df.loc[self.df[self.DATETIME_COLUMN].idxmax()]
+
+    def get_current_day_entries(self):
+        sub_frame = self.get_entries(1)
+        todate = datetime.now().date()
+        groups = sub_frame.groupby(self.df[self.DATETIME_COLUMN].apply(lambda x: x.date()))
+        if todate in groups.groups:
+            return groups.get_group(todate)
+        else:
+            return None
+
 
 t = None
 def tic():
@@ -86,19 +104,18 @@ def toc():
     print("elapsed time {}".format(elapsed))
 
 if __name__ == '__main__':
+    import agp
     print("all")
     access = CGMAccess()
 
-    access.update_entries(0.2,skip_hours=1)
-    df = access.get_entries(1)
-    print(df.head())
-    print(df.tail())
-    df.to_json()
-    print("check1")
 
-    access.update_entries(0.2, skip_hours=0)
-    df = access.get_entries(1)
-    print(df)
+    access.update_entries()
+    df = access.get_entries(90)
     df.to_json()
-    print("check2")
+    print(len(df))
+
+    stats = agp.calculateHourlyStats(df,access.DATETIME_COLUMN,access.GLUCOSE_COLUMN)
+    print(stats)
+    agp.drawAGP(df, access.DATETIME_COLUMN, access.GLUCOSE_COLUMN)
+    plt.show()
 

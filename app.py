@@ -9,6 +9,7 @@ import agp, cgm
 import pandas as pd
 from datetime import datetime, timedelta
 import json
+from time import sleep
 external_stylesheets = ['https://codepen.io/chriddyp/pen/bWLwgP.css']
 
 app = dash.Dash(__name__, external_stylesheets=external_stylesheets)
@@ -31,51 +32,57 @@ def error_screen():
             font={'color': colors['text']})
     }
 
-def create_agp(df, datetime_column, glucose_column, date_column):
-    if df is None:
-        return error_screen()
+def create_graph(cgm_access):
 
-    hours, low_10, low_25, median, up_75, up_90 = agp.calculateHourlyStats(df, datetime_column, glucose_column,
-                                                                           smoothed=False, interpolate=True)
+    agp_graphs =[]
+    try:
+        df = cgm_access.get_entries(14)
+        stats = agp.calculateHourlyStats(df,
+                                         datetime_column=cgm_access.DATETIME_COLUMN,
+                                         glucose_column=cgm_access.GLUCOSE_COLUMN,
+                                         smoothed=False, interpolated=True)
+        hours, p10, p25, p50, p75, p90 = stats.index.values, stats.glucose.p_10.values, stats.glucose.p_25.values, \
+                                         stats.glucose.p_50.values, stats.glucose.p_75.values, stats.glucose.p_90.values
+
+    except Exception as e:
+        print("error creating AGP: {}".format(e))
+    else:
+        agp_graphs = [go.Scatter(x=np.append(hours, np.flip(hours)),
+                          y=np.append(p10, np.flip(p90)),
+                          mode="lines", hoveron='fills', line=dict(width=0),
+                          fillcolor="rgba(111, 231, 219,0.5)", fill='toself',
+                          text="90th percentile", hoverinfo="text"),
+               go.Scatter(x=np.append(hours, np.flip(hours)),
+                          y=np.append(p25, np.flip(p75)),
+                          mode="lines", hoveron='fills', line=dict(width=0),
+                          fillcolor="rgba(111, 231, 219,0.5)", fill='toself',
+                          text="50th percentile", hoverinfo="text"),
+               go.Scatter(x=hours,
+                          y=p50,
+                          mode="lines", line=dict(width=5, color="rgb(111, 231, 219)"),
+                          text="median", hoverinfo="text+y")]
+
+
 
     #get last day cgm data
-    day_groups = df.groupby(date_column)
-    day_frame = day_groups.get_group(df.date.max()).sort_values("hour", ascending=True)
-    H, G = day_frame.hour.values, day_frame.glucose.values
-
-    #smooth and subsample
-    G = agp.smooth(G, 5)
-    i = np.arange(2, len(G) - 2, 2)
-    i = np.append(np.append(0, i), len(G) - 1)
-    G, H = G[i], H[i]
+    last_day_graphs = []
+    df_last_day = cgm_access.get_current_day_entries()
+    if df_last_day is not None:
+        last_day_graphs = [go.Scatter(x=df_last_day[cgm_access.DATETIME_COLUMN].apply(lambda x: x.hour+x.minute/60 + x.second/(3600)).values,
+                                      y=np.array(df_last_day[cgm_access.GLUCOSE_COLUMN].values, dtype=int),
+                                      marker=dict(size=7, color="rgba(127, 166, 238, 0.5)",
+                                      line=dict(color='rgb(127, 166, 238)', width=1)),
+                                      mode="markers", hoverinfo="y")]
 
     return {
-        'data': [
-            go.Scatter(x=np.append(hours,np.flip(hours)), y=np.append(low_10, np.flip(up_90)),
-                       mode="lines", hoveron='fills', line=dict(width=0),
-                       fillcolor="rgba(111, 231, 219,0.5)", fill='toself',
-                       text="90th percentile", hoverinfo="text"),
-
-            go.Scatter(x=np.append(hours,np.flip(hours)), y=np.append(low_25, np.flip(up_75)),
-                       mode="lines", hoveron='fills', line=dict(width=0),
-                       fillcolor="rgba(111, 231, 219,0.5)", fill='toself',
-                       text="50th percentile", hoverinfo="text"),
-
-            go.Scatter(x=hours, y=median, mode="lines", line=dict(width=5, color="rgb(111, 231, 219)"),
-                       text="median", hoverinfo="text+y"),
-
-            go.Scatter(x=H, y=np.array(G, dtype=int),
-                       marker=dict(size=7, color="rgba(127, 166, 238, 0.5)", line=dict(color='rgb(127, 166, 238)', width=1)),
-                       #line=dict(width=3, color="rgb(127, 166, 238)"),
-                       mode="markers", hoverinfo="y")
-        ],
+        'data': agp_graphs + last_day_graphs,
         'layout': go.Layout(
             xaxis=dict(type='linear', title='time of day', zeroline=False, range=[0, 24],
-                       ticktext=["2:00","7:00","12:00","17:00","22:00"],
-                       tickvals=[2,7,12,17,22], gridcolor='rgb(50,50,50)', showgrid=True),
+                       ticktext=["2:00", "7:00", "12:00", "17:00", "22:00"],
+                       tickvals=[2, 7, 12, 17, 22], gridcolor='rgb(50,50,50)', showgrid=True),
             yaxis=dict(type='linear', title='glucose', zeroline=False, range=[25, 325],
-                       tickvals=[54,70,180,250],
-                       ticktext=["54","70","180","250"], gridcolor='rgb(50,50,50)', showgrid=True),
+                       tickvals=[54, 70, 180, 250],
+                       ticktext=["54", "70", "180", "250"], gridcolor='rgb(50,50,50)', showgrid=True),
             margin={'l': 40, 'b': 40, 't': 10, 'r': 10},
             #legend={'x': 0, 'y': 1},
             hovermode='closest',
@@ -108,66 +115,40 @@ app.layout = html.Div( style={'backgroundColor': colors['background']}, children
     html.Button(id='refresh_graph_button', n_clicks=0, children='refresh graph'),
 
     # Hidden div inside the app that stores the intermediate value
-    html.Div(id='df_as_json_holder', style={'display': 'none'}, children = ""),
-    html.Div(id='last_bgm_json_holder', style={'display': 'none'}, children = ""),
+    #html.Div(id='df_as_json_holder', style={'display': 'none'}, children = ""),
+    html.Div(id='last_loaded_div', children = "Last Refresh: ???"),#style={'display': 'none'},
 
-    dcc.Interval(id='load_data_interval', interval=30*1000),
-    dcc.Interval(id='refresh_graph_interval', interval=10*1000),
+    dcc.Interval(id='load_data_interval', interval=10*1000),
     dcc.Interval(id='refresh_headline_interval', interval=1*1000)
 
 ])
 
 
-@app.callback([Output('df_as_json_holder', 'children'), Output('last_bgm_json_holder', 'children')],
-              [Input('load_data_interval','n_intervals'), Input('load_data_button', 'n_clicks')])
-def load_data_callback(n_intervals, n_clicks):
-    print("reloading data")
-
-    df_as_json = ""
-    last_value_as_json = ""
-    try:
-        cgm_access.update_entries(limit_days=14)
-        df = cgm_access.get_entries(14)
-
-        df_as_json = df.to_json()
-        last_value = df.loc[df.datetime.idxmax()][["datetime", "glucose"]]
-        last_value_as_json = last_value.to_json()
-    except Exception as e:
-        print(e)
-    return [df_as_json, last_value_as_json]
-
-
-@app.callback([Output("agp_graph", "figure")],
-              [Input('refresh_graph_button', 'n_clicks'), Input('refresh_graph_interval', 'n_intervals')],
-              [State("df_as_json_holder","children")])
-def refresh_graph_callback(n_clicks, n_intervals, df_as_json):
-    print("refreshing graph")
-    try:
-        df = pd.read_json(df_as_json)
-    except Exception as e:
-        print("error while parsing dataframe: {}".format(e))
-        return [error_screen()]
-    else:
-        return [create_agp(df, datetime_column="datetime", glucose_column="glucose", date_column="date")]
+@app.callback([Output("agp_graph", "figure"),Output("last_loaded_div", "children")],
+              [Input('refresh_graph_button', 'n_clicks'), Input('load_data_interval', 'n_intervals')])
+             #[State("df_as_json_holder", "children")]
+def refresh_graph_callback(n_clicks, n_intervals):
+    cgm_access.update_entries(30)
+    last_loaded = "Last Refresh: {}".format(datetime.now().strftime("%H:%M:%S"))
+    return [create_graph(cgm_access), last_loaded]
 
 
 @app.callback([Output('title', 'children')],
-              [Input('refresh_graph_button', 'n_clicks'), Input("refresh_headline_interval", "n_intervals")],
-              [State("last_bgm_json_holder", "children")])
-def refresh_headline_callback(n_clicks, n_intervals, last_value_as_json):
-
+              [Input('refresh_graph_button', 'n_clicks'),
+               Input("refresh_headline_interval", "n_intervals"),
+               Input('load_data_interval', 'n_intervals')])
+def refresh_headline_callback(n_clicks, n_intervals,n_interval2):
     headline = "???"
     try:
-        d = json.loads(last_value_as_json)
-        headline = get_headline(datetime.fromtimestamp(d["datetime"]/1000),
-                                d["glucose"])
+        latest = cgm_access.get_last_entry()
+        headline = get_headline(latest[cgm_access.DATETIME_COLUMN],
+                                latest[cgm_access.GLUCOSE_COLUMN])
     except Exception as e:
-        pass
-        #print("error while creating headline: {}".format(e))
+        print("error while creating headline: {}".format(e))
     return [headline]
 
 
 
 
 if __name__ == '__main__':
-    app.run_server(debug=False)
+    app.run_server(debug=True)
