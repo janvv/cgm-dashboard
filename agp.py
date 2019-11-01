@@ -30,7 +30,10 @@ def calculateHourlyStats(logs, column_name_datetime, glucose_column_name, smooth
         return percentile_
 
     logs['hourD'] = logs[column_name_datetime].apply(lambda x: x.hour)
-    stats = logs.groupby('hourD').agg([percentile(10), percentile(25), percentile(50), percentile(75), percentile(90)])
+    stats = logs.groupby('hourD').agg({glucose_column_name: [percentile(10), percentile(25),
+                                                             percentile(50), percentile(75),
+                                                             percentile(90)]})
+
 
     # smooth using convolutional filter
     p90 = smooth(stats.glucose.p_90.values) if smoothed else stats.glucose.p_90
@@ -99,40 +102,3 @@ def major_formatter(x):
     else:
         d = time(hour=np.mod(x, 24))
     return d.strftime('%H:%M')
-
-
-def drawAGP(logs, column_name_datetime, column_name_glucose,
-            smoothed=True, color='b', debug=False, show_threshs=False, ax=None):
-    # calculate percentiles
-    hours,p10,p25,p50,p75,p90 = calculateHourlyStats(logs, column_name_datetime, column_name_glucose, smoothed=smoothed)
-
-    # draw
-    if not ax:
-        ax = plt.figure(figsize=(12, 5)).gca()
-    ax.grid(True, 'both')
-    if show_threshs:
-        ax.hlines([70, 180], 0, 24, colors=['r', 'b'], linestyles='--')
-
-    # percentiles
-    ax.plot(hoursInt, p50, color=color, linewidth='4', label='median')
-    ax.fill_between(hoursInt, p10, p90, color=color, alpha=0.3, label='90th')
-    ax.fill_between(hoursInt, p25, p75, color=color, alpha=0.5, label='25th')
-    ax.legend(loc='upper right', frameon=False)
-
-    # axis labels
-    x_pos = [0, 6, 12, 18, 24]
-    ax.set_xticks(x_pos)
-    ax.set_xticklabels([major_formatter(x) for x in x_pos]);
-    ax.set_xlabel('Hour of Day')
-    ax.set_ylabel('Glucose in mg/dl')
-    ax.set_ylim([35, 350])
-    ax.set_yticks([70, 140, 180, 250, 300])
-    ax.set_xlim([0, 24])
-
-    if debug:
-        print('median: {}'.format(p50))
-        ax.plot(hoursInt, p90, 'r:')
-        ax.plot(hoursInt, p75, 'r:')
-        ax.plot(hoursInt, p50, 'r:')
-        ax.plot(hoursInt, p25, 'r:')
-        ax.plot(hoursInt, p10, 'r:')

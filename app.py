@@ -1,14 +1,14 @@
 import dash
 import dash_core_components as dcc
 import dash_html_components as html
-
+from dash.dependencies import Input, Output, State
 import plotly.graph_objs as go
 import numpy as np
-from dash.dependencies import Input, Output, State
-from datetime import datetime, timedelta
-from scipy import interpolate as interp
-
+import sys
 import agp, cgm
+import pandas as pd
+from datetime import datetime, timedelta
+import json
 external_stylesheets = ['https://codepen.io/chriddyp/pen/bWLwgP.css']
 
 app = dash.Dash(__name__, external_stylesheets=external_stylesheets)
@@ -20,6 +20,8 @@ colors = {
     'text': '#FFFFFF'
 }
 
+dat = ""
+
 def error_screen():
     return {
         'data': [],
@@ -29,14 +31,15 @@ def error_screen():
             font={'color': colors['text']})
     }
 
-def create_agp(df):
+def create_agp(df, datetime_column, glucose_column, date_column):
     if df is None:
         return error_screen()
 
-    hours, low_10, low_25, median, up_75, up_90 = agp.calculateHourlyStats(df, "date_time", "glucose",
+    hours, low_10, low_25, median, up_75, up_90 = agp.calculateHourlyStats(df, datetime_column, glucose_column,
                                                                            smoothed=False, interpolate=True)
+
     #get last day cgm data
-    day_groups = df.groupby("date")
+    day_groups = df.groupby(date_column)
     day_frame = day_groups.get_group(df.date.max()).sort_values("hour", ascending=True)
     H, G = day_frame.hour.values, day_frame.glucose.values
 
@@ -84,6 +87,12 @@ def create_agp(df):
     }
 
 
+def get_headline(t, g):
+    dt = (datetime.now() - t)
+    headline = "{:.0f} mg/dl ({:02d}:{:02d}:{:02d} ago) "\
+        .format(g, int(dt.seconds / 3600), int(np.mod(dt.seconds / 60, 60)), int(np.mod(dt.seconds, 60)))
+    return headline
+
 
 app.layout = html.Div( style={'backgroundColor': colors['background']}, children=[
     html.H1(
@@ -95,18 +104,70 @@ app.layout = html.Div( style={'backgroundColor': colors['background']}, children
     ),
     #html.Div(id='current_glucose', style={'color': colors['text'], "font-size":"36px", "textAlign":"right"}),
     dcc.Graph(id='agp_graph'),
-    dcc.Interval(id='interval-component', interval=60*1000),
-    html.Button(id='load_button', n_clicks=0, children='load'),
+    html.Button(id='load_data_button', n_clicks=0, children='load data'),
+    html.Button(id='refresh_graph_button', n_clicks=0, children='refresh graph'),
+
+    # Hidden div inside the app that stores the intermediate value
+    html.Div(id='df_as_json_holder', style={'display': 'none'}, children = ""),
+    html.Div(id='last_bgm_json_holder', style={'display': 'none'}, children = ""),
+
+    dcc.Interval(id='load_data_interval', interval=30*1000),
+    dcc.Interval(id='refresh_graph_interval', interval=10*1000),
+    dcc.Interval(id='refresh_headline_interval', interval=1*1000)
+
 ])
 
 
-@app.callback([Output('title', 'children'),Output("agp_graph", "figure")],
-              [Input('load_button', 'n_clicks'),Input('interval-component', 'n_intervals')])
-def load_callback(n_clicks,n_intervals):
-    df = cgm_access.load_last_entries(n=24 * 14 * 12)
-    glucose_string = "{:.0f} mg/dl".format(df[df.date == df.date.max()].glucose.values[0])
-    return glucose_string, create_agp(df)
+@app.callback([Output('df_as_json_holder', 'children'), Output('last_bgm_json_holder', 'children')],
+              [Input('load_data_interval','n_intervals'), Input('load_data_button', 'n_clicks')])
+def load_data_callback(n_intervals, n_clicks):
+    print("reloading data")
+
+    df_as_json = ""
+    last_value_as_json = ""
+    try:
+        cgm_access.update_entries(limit_days=14)
+        df = cgm_access.get_entries(14)
+
+        df_as_json = df.to_json()
+        last_value = df.loc[df.datetime.idxmax()][["datetime", "glucose"]]
+        last_value_as_json = last_value.to_json()
+    except Exception as e:
+        print(e)
+    return [df_as_json, last_value_as_json]
+
+
+@app.callback([Output("agp_graph", "figure")],
+              [Input('refresh_graph_button', 'n_clicks'), Input('refresh_graph_interval', 'n_intervals')],
+              [State("df_as_json_holder","children")])
+def refresh_graph_callback(n_clicks, n_intervals, df_as_json):
+    print("refreshing graph")
+    try:
+        df = pd.read_json(df_as_json)
+    except Exception as e:
+        print("error while parsing dataframe: {}".format(e))
+        return [error_screen()]
+    else:
+        return [create_agp(df, datetime_column="datetime", glucose_column="glucose", date_column="date")]
+
+
+@app.callback([Output('title', 'children')],
+              [Input('refresh_graph_button', 'n_clicks'), Input("refresh_headline_interval", "n_intervals")],
+              [State("last_bgm_json_holder", "children")])
+def refresh_headline_callback(n_clicks, n_intervals, last_value_as_json):
+
+    headline = "???"
+    try:
+        d = json.loads(last_value_as_json)
+        headline = get_headline(datetime.fromtimestamp(d["datetime"]/1000),
+                                d["glucose"])
+    except Exception as e:
+        pass
+        #print("error while creating headline: {}".format(e))
+    return [headline]
+
+
 
 
 if __name__ == '__main__':
-    app.run_server(debug=True)
+    app.run_server(debug=False)
