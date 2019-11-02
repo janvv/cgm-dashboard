@@ -1,0 +1,23 @@
+html.Div(
+        className="row",
+        children=[
+            html.Div(
+                className="six columns",
+                children=[
+                    html.Div(
+                        children=dcc.Graph()
+                    )
+                ]
+            ),
+            html.Div(
+                className="six columns",
+                children=html.Div([
+                    dcc.Graph(),
+                    dcc.Graph(),
+                ])
+            )
+        ]
+    )
+])
+
+app.css.append_css({

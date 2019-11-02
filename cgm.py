@@ -7,6 +7,11 @@ from datetime import datetime, timedelta, timezone
 from matplotlib import pyplot as plt
 import time
 
+
+def fraction_ranges(s):
+    calc = pd.cut(s, bins=[0, 70, 180, 1000], labels=["hypo", "range", "hyper"]).value_counts() / len(s)
+    return calc.hypo, calc.range, calc.hyper
+
 class CGMAccess:
     def __init__(self):
         self.logger = logging.getLogger("dash.mongo")
@@ -87,7 +92,7 @@ class CGMAccess:
         return temp_df
 
     def get_last_entry(self):
-        return self.df.loc[self.df[self.DATETIME_COLUMN].idxmax()]
+            return self.df.loc[self.df[self.DATETIME_COLUMN].idxmax()]
 
     def get_current_day_entries(self):
         sub_frame = self.get_entries(1)
@@ -97,6 +102,19 @@ class CGMAccess:
             return groups.get_group(todate)
         else:
             return None
+
+    def agg_last_6_months(self):
+        # last_years, last_months = get_last_12_year_months()
+        sub_frame = self.df.loc[self.df.datetime > datetime.now() - timedelta(days=182)]
+        sub_frame["year"] = sub_frame.datetime.apply(lambda x: x.year)
+        sub_frame["month"] = sub_frame.datetime.apply(lambda x: x.month)
+        g = sub_frame.groupby(["year", "month"])
+        agg = g.agg({"glucose": lambda x: fraction_ranges(x)[1]})
+
+        (year_months, means) = agg.index.values.flatten(), agg.values.flatten()
+        labels = [datetime(year=x[0], month=x[1], day=1).strftime("%b '%y") for x in agg.index.values]
+        print(labels,means)
+        return labels, means
 
 
 t = None
@@ -115,9 +133,6 @@ if __name__ == '__main__':
     access.update_entries(limit_days=14, skip_hours=10/60)
     df = access.get_entries(14)
 
-    while True:
-        access.update_entries(limit_days=14)
-        latest = access.get_last_entry()
-        print(latest["datetime"],latest["glucose"])
-        time.sleep(11)
+    access.update_entries()
+    print(access.agg_last_6_months())
 
