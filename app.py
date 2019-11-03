@@ -20,10 +20,10 @@ colors = {
     'background': '#111111',
     'text': '#FFFFFF'
 }
-
 dat = ""
 
-def blank_graph(height, id):
+
+def blank_graph(id,height):
     return dcc.Graph(
         id=id,
         figure={
@@ -32,20 +32,22 @@ def blank_graph(height, id):
                 plot_bgcolor=colors['background'],
                 paper_bgcolor=colors['background'],
                 font={'color': colors['text']},
-                height= height,
-                showlegend=False)})
+                showlegend=False,
+                height=height)})
 
-def agp_graph(cgm_access,show_today=True, show_grid=True):
+def agp_graph(cgm_access,n=14, show_today=True, show_grid=True):
 
+    ylim = 275
     graphs = []
     try:
-        df = cgm_access.get_entries(14)
+        df = cgm_access.get_entries(n)
         stats = agp.calculateHourlyStats(df,
                                          datetime_column=cgm_access.DATETIME_COLUMN,
                                          glucose_column=cgm_access.GLUCOSE_COLUMN,
                                          smoothed=False, interpolated=True)
         hours, p10, p25, p50, p75, p90 = stats.index.values, stats.glucose.p_10.values, stats.glucose.p_25.values, \
                                          stats.glucose.p_50.values, stats.glucose.p_75.values, stats.glucose.p_90.values
+        ylim = max(ylim, max(p90))
     except Exception as e:
         print("error creating AGP: {}".format(e))
     else:
@@ -66,22 +68,26 @@ def agp_graph(cgm_access,show_today=True, show_grid=True):
 
     #get last day cgm data
     if show_today:
-        df_last_day = cgm_access.get_current_day_entries()
-        if df_last_day is not None:
-            last_day_graph = [go.Scatter(x=df_last_day[cgm_access.DATETIME_COLUMN].apply(lambda x: x.hour+x.minute/60 + x.second/(3600)).values,
-                                          y=np.array(df_last_day[cgm_access.GLUCOSE_COLUMN].values, dtype=int),
-                                          marker=dict(size=7, color="rgba(127, 166, 238, 0.5)",
-                                          line=dict(color='rgb(127, 166, 238)', width=1)),
-                                          mode="markers", hoverinfo="y")]
-            graphs = graphs + last_day_graph
-
+        try:
+            df_last_day = cgm_access.get_current_day_entries()
+        except Exception as e:
+            print("Error while adding day scatter plot: {}".format(e))
+        else:
+            if df_last_day is not None:
+                ylim = max(ylim, df_last_day[cgm_access.GLUCOSE_COLUMN].max())
+                last_day_graph = [go.Scatter(x=df_last_day[cgm_access.DATETIME_COLUMN].apply(lambda x: x.hour+x.minute/60 + x.second/(3600)).values,
+                                              y=np.array(df_last_day[cgm_access.GLUCOSE_COLUMN].values, dtype=int),
+                                              marker=dict(size=7, color="rgba(127, 166, 238, 0.5)",
+                                              line=dict(color='rgb(127, 166, 238)', width=1)),
+                                              mode="markers", hoverinfo="y")]
+                graphs = graphs + last_day_graph
     return {
         'data': graphs,
         'layout': go.Layout(
             xaxis=dict(type='linear', zeroline=False, range=[0, 24], #title='time of day',
                        ticktext=["2:00", "7:00", "12:00", "17:00", "22:00"],
                        tickvals=[2, 7, 12, 17, 22], gridcolor='rgb(50,50,50)', showgrid=show_grid),
-            yaxis=dict(type='linear', zeroline=False, range=[25, 360], #title='glucose',
+            yaxis=dict(type='linear', zeroline=False, range=[25,ylim], #title='glucose',
                        tickvals=[70, 180, 220],
                        ticktext=["70", "180", "220"], gridcolor='rgb(50,50,50)', showgrid=show_grid),
             margin={'l': 40, 'b': 40, 't': 10, 'r': 10},
@@ -89,8 +95,7 @@ def agp_graph(cgm_access,show_today=True, show_grid=True):
             plot_bgcolor=colors['background'],
             paper_bgcolor=colors['background'],
             showlegend=False,
-            font={'color': colors['text']},
-            height=450)
+            font={'color': colors['text']})
     }
 
 
@@ -101,36 +106,33 @@ def get_headline(t, g):
     return headline
 
 
+app.layout = html.Div(style={'backgroundColor': colors['background']}, children=[
+    html.Div([
+        html.Div(style={'width':'49%','display': 'inline-block'}, children=[
+            html.Button(id='refresh_graph_button', n_clicks=0, children='Refresh', style={'display': 'inline-block'}),
+            html.Div(id='last_loaded_div', children="Last Refresh: ???", style={'width': '200px', 'display': 'inline-block', 'text-align': 'center'}),
+            dcc.Checklist(id="checkboxes",
+                          options=[{'label': 'Today', 'value': 'show_today'},
+                                   {'label': 'Grid', 'value': 'show_grid'}],
+                          value=['show_today'],
+                          labelStyle={'display': 'inline-block'},
+                          style={'display': 'inline-block'}),
+            html.Div(dcc.Slider(id="day_slider", min=1, max=5, step=1, value=2, marks=dict(zip([1,2,3,4,5],["7 d","14 d","30 d","90 d","365 d"]))),
+                     style={"width":150, "marginLeft":10,'display': 'inline-block'})
+        ]),
+        html.Div(style={'width':'49%','display': 'inline-block'}, children=[
+            html.H1(id="title", children='?? mg/dl', style={'textAlign': 'right', 'color': colors['text']})])]),
+    html.Div([dcc.Graph(id='agp_graph')]),
 
-app.layout = html.Div( style={'backgroundColor': colors['background']}, children=[
-    html.H1(id="title", children='?? mg/dl', style={'textAlign': 'right',' color': colors['text']}),
-    dcc.Graph(id='agp_graph'),
-    html.Button(id='load_data_button', n_clicks=0, children='load data'),
-    html.Button(id='refresh_graph_button', n_clicks=0, children='refresh graph'),
-    html.Div(id='last_loaded_div', children="Last Refresh: ???"),
-    dcc.Checklist(id="checkboxes",
-                  options=[{'label': 'Today', 'value': 'show_today'},{'label': 'Grid', 'value': 'show_grid'},],
-                  value=['show_today'],labelStyle={'display': 'inline-block'}),
     html.Div(
         className="row",
         children=[
-            html.Div(
-                className="six columns",
-                children=[
-                    html.Div(
-                        children=blank_graph(height=300, id="tir_bars")
-                    )
-                ]
-            ),
-            html.Div(
-                className="six columns",
-                children=html.Div([blank_graph(height=150, id="tir_pie"), blank_graph(height=150, id="pentagon")])
-            )
-        ]
-    ),
+            html.Div(className="six columns", children=blank_graph(id="tir_bars",height=150)),
+            html.Div(className="six columns", children=html.Div([#blank_graph(id="tir_pie",height=150),
+                                                                 blank_graph(id="pentagon",height=150)]))]),
 
     dcc.Interval(id='load_data_interval', interval=10*1000),
-    dcc.Interval(id='refresh_headline_interval', interval=1*1000*1000)
+    dcc.Interval(id='refresh_headline_interval', interval=1*1000)
 
 ])
 
@@ -138,13 +140,16 @@ app.layout = html.Div( style={'backgroundColor': colors['background']}, children
 @app.callback([Output("agp_graph", "figure"), Output("last_loaded_div", "children")],
               [Input('refresh_graph_button', 'n_clicks'),
                Input('load_data_interval', 'n_intervals'),
-               Input('checkboxes', 'value')])
+               Input('checkboxes', 'value'),
+               Input('day_slider', 'value')])
              #[State("df_as_json_holder", "children")]
-def refresh_agp_graph_callback(n_clicks, n_intervals, checkbox_values):
-    cgm_access.update_entries(30)
+def refresh_agp_graph_callback(n_clicks, n_intervals, checkbox_values,slider_value):
+    num_days = [7,14,30,90,365][slider_value-1]
+    cgm_access.update_entries(num_days)
+    print(num_days)
     last_loaded = "Last Refresh: {}".format(datetime.now().strftime("%H:%M:%S"))
 
-    return [agp_graph(cgm_access,
+    return [agp_graph(cgm_access, n=num_days,
                          show_today = "show_today" in checkbox_values,
                          show_grid = "show_grid" in checkbox_values),
             last_loaded]
@@ -177,14 +182,12 @@ def refresh_tir_graph(n_intervals):
                 'x': labels,
                 'y': means,
                 'type': 'bar'}],
-            'layout': go.Layout(
-                height=300,
-                margin={'l': 10, 'b': 20, 't': 0, 'r': 0},
+            'layout': go.Layout(yaxis = dict(range=[0, 1]),
+                                margin={'l': 40, 'b': 40, 't': 10, 'r': 10},
                 plot_bgcolor=colors['background'],
                 paper_bgcolor=colors['background'],
                 showlegend=False,
                 font={'color': colors['text']})}]
-
 
 
 
