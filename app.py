@@ -106,10 +106,9 @@ def get_headline(t, g):
     return headline
 
 
-app.layout = html.Div(style={'backgroundColor': colors['background']}, children=[
+app.layout = html.Div(style={'backgroundColor': colors['background'], 'color': colors['text']}, children=[
     html.Div([
-        html.Div(style={'width':'49%','display': 'inline-block'}, children=[
-            html.Button(id='refresh_graph_button', n_clicks=0, children='Refresh', style={'display': 'inline-block'}),
+        html.Div(style={'width': '49%', 'display': 'inline-block'}, children=[
             html.Div(id='last_loaded_div', children="Last Refresh: ???", style={'width': '200px', 'display': 'inline-block', 'text-align': 'center'}),
             dcc.Checklist(id="checkboxes",
                           options=[{'label': 'Today', 'value': 'show_today'},
@@ -117,8 +116,9 @@ app.layout = html.Div(style={'backgroundColor': colors['background']}, children=
                           value=['show_today'],
                           labelStyle={'display': 'inline-block'},
                           style={'display': 'inline-block'}),
-            html.Div(dcc.Slider(id="day_slider", min=1, max=5, step=1, value=2, marks=dict(zip([1,2,3,4,5],["7 d","14 d","30 d","90 d","365 d"]))),
-                     style={"width":150, "marginLeft":10,'display': 'inline-block'})
+            html.Div(dcc.Slider(id="day_slider", min=1, max=5, step=1, value=2,
+                                marks=dict(zip([1, 2, 3, 4, 5], ["7d", "14d", "30d", "90d", "365d"]))),
+                     style={"width": 200, "marginLeft": 20, 'display': 'inline-block'})
         ]),
         html.Div(style={'width':'49%','display': 'inline-block'}, children=[
             html.H1(id="title", children='?? mg/dl', style={'textAlign': 'right', 'color': colors['text']})])]),
@@ -128,68 +128,52 @@ app.layout = html.Div(style={'backgroundColor': colors['background']}, children=
         className="row",
         children=[
             html.Div(className="six columns", children=blank_graph(id="tir_bars",height=150)),
-            html.Div(className="six columns", children=html.Div([#blank_graph(id="tir_pie",height=150),
-                                                                 blank_graph(id="pentagon",height=150)]))]),
+            html.Div(className="six columns", children=html.Div([blank_graph(id="pentagon", height=150)]))]),
 
-    dcc.Interval(id='load_data_interval', interval=10*1000),
-    dcc.Interval(id='refresh_headline_interval', interval=1*1000)
+    dcc.Interval(id='update_tir_interval', interval=30*60*1000),
+    dcc.Interval(id='update_agp_interval', interval=10*1000),
+    dcc.Interval(id='update_headline_interval', interval=1*1000),
+    dcc.Interval(id='startup_interval', interval=1*1000,max_intervals=1)
 
 ])
 
 
 @app.callback([Output("agp_graph", "figure"), Output("last_loaded_div", "children")],
-              [Input('refresh_graph_button', 'n_clicks'),
-               Input('load_data_interval', 'n_intervals'),
+              [Input('update_agp_interval', 'n_intervals'),Input("startup_interval","n_intervals"),
                Input('checkboxes', 'value'),
                Input('day_slider', 'value')])
-             #[State("df_as_json_holder", "children")]
-def refresh_agp_graph_callback(n_clicks, n_intervals, checkbox_values,slider_value):
-    num_days = [7,14,30,90,365][slider_value-1]
-    cgm_access.update_entries(num_days)
-    print(num_days)
+def refresh_agp_graph_callback(n_interval_load, n_startup_interval, checkbox_values, slider_value):
+    num_days = [7, 14, 30, 90, 365][slider_value-1]
     last_loaded = "Last Refresh: {}".format(datetime.now().strftime("%H:%M:%S"))
-
-    return [agp_graph(cgm_access, n=num_days,
-                         show_today = "show_today" in checkbox_values,
-                         show_grid = "show_grid" in checkbox_values),
+    return [agp_graph(cgm_access, n=num_days, show_today="show_today" in checkbox_values, show_grid="show_grid" in checkbox_values),
             last_loaded]
 
 
 @app.callback([Output('title', 'children')],
-              [Input('refresh_graph_button', 'n_clicks'),
-               Input("refresh_headline_interval", "n_intervals"),
-               Input('load_data_interval', 'n_intervals')])
-def refresh_headline_callback(n_clicks, n_intervals, n_interval2):
+              [Input("update_headline_interval", "n_intervals"),
+               Input('update_agp_interval', 'n_intervals')])
+def refresh_headline_callback(n_interval_headline, n_interval_load):
     headline = "???"
-    try:
-        latest = cgm_access.get_last_entry()
-        headline = get_headline(latest[cgm_access.DATETIME_COLUMN],
-                                latest[cgm_access.GLUCOSE_COLUMN])
-    except Exception as e:
-        print("error while creating headline: {}".format(e))
+    latest = cgm_access.get_last_entry()
+    if latest is not None:
+        headline = get_headline(latest[cgm_access.DATETIME_COLUMN],latest[cgm_access.GLUCOSE_COLUMN])
     return [headline]
 
 
 @app.callback([Output('tir_bars', 'figure')],
-              [Input('load_data_interval', 'n_intervals')])
-
-def refresh_tir_graph(n_intervals):
-    print("called")
-    labels, means = cgm_access.agg_last_6_months()
-    print(means)
-    return [{
-            'data': [{
-                'x': labels,
-                'y': means,
-                'type': 'bar'}],
-            'layout': go.Layout(yaxis = dict(range=[0, 1]),
-                                margin={'l': 40, 'b': 40, 't': 10, 'r': 10},
-                plot_bgcolor=colors['background'],
-                paper_bgcolor=colors['background'],
-                showlegend=False,
-                font={'color': colors['text']})}]
+              [Input('update_tir_interval', 'n_intervals'),Input("startup_interval","n_intervals")])
+def refresh_tir_graph(n_intervals,n_startup_interval):
+    print("update tir")
+    (labels, means) = ([], [])
+    result = cgm_access.agg_last_6_months()
+    if result is not None:
+        (labels, means) = result
+    return [{'data': [{'x': labels, 'y': means, 'type': 'bar'}],
+             'layout': go.Layout(yaxis=dict(range=[0, 1]),margin={'l': 40, 'b': 40, 't': 10, 'r': 10},
+                                 plot_bgcolor=colors['background'], paper_bgcolor=colors['background'], showlegend=False,
+                                 font={'color': colors['text']})}]
 
 
 
 if __name__ == '__main__':
-    app.run_server(debug=True)
+    app.run_server(debug=True, port=8080, host='0.0.0.0')

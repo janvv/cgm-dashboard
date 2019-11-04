@@ -78,55 +78,62 @@ class CGMAccess:
                 print("latest found = {}".format(max(t)))
         except errors.PyMongoError as e:
             self.logger.error("Error while querying for last entries: \n {}".format(e))
-
+            return False
         else:
             # update query times if successfull
             self.earlierst_query_time = min(t_start, self.earlierst_query_time) if (self.earlierst_query_time != -1) else t_start
             #we can not be sure that db is fast enough to return values immediately, therefore end-time is only updated if we received a value
             #if we would update to t_end right away, we would not find it if it wasnt returned immediately
             self.latest_query_time = datetime_latest_queried_item
+            return True
 
 
-    def get_entries(self, n_days=14):
+    def get_entries(self, n_days=14, update = True):
         start_datetime = (datetime.now()-timedelta(days=n_days))
-        #print("getting entries > {}".format(start_datetime))
 
-        temp_df = self.df.loc[self.df[self.DATETIME_COLUMN] > start_datetime].sort_values(self.DATETIME_COLUMN)
-        #temp_df["datetime"] = temp_df.timestamp.apply(lambda x: datetime.fromtimestamp(x,tz=timezone.utc))
-        #temp_df["hour"] = temp_df.datetime.apply(lambda x: x.hour + x.minute / 60 + x.second / (60 * 60))
-        #temp_df["date"] = temp_df.datetime.apply(lambda x: x.date())
-        return temp_df
-
-    def get_last_entry(self):
-            return self.df.loc[self.df[self.DATETIME_COLUMN].idxmax()]
-
-    def get_current_day_entries(self):
-        sub_frame = self.get_entries(1)
-        todate = datetime.now().date()
-        result = None
-        try:
-            groups = sub_frame.groupby(self.df[self.DATETIME_COLUMN].apply(lambda x: x.date()))
-        except Exception as e:
-            print(e)
+        #check if we need to update data
+        if update and (((datetime.now().timestamp()-self.latest_query_time) > 1*60) or (start_datetime.timestamp() < self.earlierst_query_time)):
+            print("updating condition met")
+            success = self.update_entries(n_days)
+            if not success:
+                return None
+        sub_frame = self.df.loc[self.df[self.DATETIME_COLUMN] > start_datetime].sort_values(self.DATETIME_COLUMN)
+        if len(sub_frame) > 0:
+            return sub_frame
         else:
-            if todate in groups.groups:
-                result = groups.get_group(todate)
-        return result
+            return None
+
+    def get_last_entry(self, update=False):
+        df = self.get_entries(1, update=update)
+        if df is not None:
+            return df.loc[df[self.DATETIME_COLUMN].idxmax()]
+        else:
+            return None
+
+
+    def get_current_day_entries(self, update = False):
+        sub_frame = self.get_entries(1, update=update)
+        if sub_frame is not None:
+            to_date = datetime.now().date()
+            groups = sub_frame.groupby(self.df[self.DATETIME_COLUMN].apply(lambda x: x.date()))
+            if to_date in groups.groups:
+                result = groups.get_group(to_date)
+                return result
+        return None
 
     def agg_last_6_months(self):
-        tic()
-        # last_years, last_months = get_last_12_year_months()
-        sub_frame = self.df.loc[self.df.datetime > datetime.now() - timedelta(days=182)]
-        sub_frame["year"] = sub_frame.datetime.apply(lambda x: x.year)
-        sub_frame["week"] = sub_frame.datetime.apply(lambda x: x.week)
-        g = sub_frame.groupby(["year", "week"])
-        agg = g.agg({"glucose": lambda x: fraction_ranges(x)[1]})
+        sub_frame = self.get_entries(182)
+        if sub_frame is not None:
+            sub_frame["year"] = sub_frame.datetime.apply(lambda x: x.year)
+            sub_frame["week"] = sub_frame.datetime.apply(lambda x: x.week)
+            g = sub_frame.groupby(["year", "week"])
+            agg = g.agg({"glucose": lambda x: fraction_ranges(x)[1]})
 
-        (year_weeks, means) = agg.index.values.flatten(), agg.values.flatten()
-        #labels = [datetime.strptime("%y %W",) for x in agg.index.values]
-        labels = ["W{}".format(x[1]) for x in agg.index.values]
-        toc()
-        return labels, means
+            (year_weeks, means) = agg.index.values.flatten(), agg.values.flatten()
+            labels = ["W{}".format(x[1]) for x in agg.index.values]
+            return labels, means
+        else:
+            return None
 
 
 if __name__ == '__main__':
@@ -135,7 +142,7 @@ if __name__ == '__main__':
     tic()
     access.update_entries()
     toc()
-    
+
     tic()
     agg = agg_last_6_months()
     toc()
