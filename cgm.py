@@ -127,11 +127,12 @@ class CGMAccess:
             sub_frame["year"] = sub_frame.datetime.apply(lambda x: x.year)
             sub_frame["week"] = sub_frame.datetime.apply(lambda x: x.week)
             g = sub_frame.groupby(["year", "week"])
-            agg = g.agg({"glucose": lambda x: fraction_ranges(x)[1]})
 
-            (year_weeks, means) = agg.index.values.flatten(), agg.values.flatten()
+            agg = g.agg({"glucose": lambda x: fraction_ranges(x)})
+            (year_weeks, fractions) = agg.index.values.flatten(), agg.values.flatten()
             labels = ["W{}".format(x[1]) for x in agg.index.values]
-            return labels, means
+
+            return labels, fractions
         else:
             return None
 
@@ -140,10 +141,7 @@ if __name__ == '__main__':
     access = CGMAccess()
 
     tic()
-    access.update_entries()
-    toc()
-
-    tic()
-    agg = agg_last_6_months()
+    agg = access.agg_last_6_months()
+    print(agg)
     toc()
 
