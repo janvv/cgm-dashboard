@@ -10,7 +10,7 @@ import pandas as pd
 from datetime import datetime, timedelta
 import json
 from time import sleep
-external_stylesheets = ['https://codepen.io/chriddyp/pen/bWLwgP.css','https://codepen.io/chriddyp/pen/bWLwgP.css']
+external_stylesheets = ['https://codepen.io/chriddyp/pen/bWLwgP.css', 'https://codepen.io/chriddyp/pen/bWLwgP.css']
 
 app = dash.Dash(__name__, external_stylesheets=external_stylesheets)
 
@@ -54,19 +54,22 @@ def agp_graph(cgm_access,n=14, show_today=True, show_grid=True):
         print("error creating AGP: {}".format(e))
     else:
         graphs = [go.Scatter(x=np.append(hours, np.flip(hours)),
-                          y=np.append(p10, np.flip(p90)),
-                          mode="lines", hoveron='fills', line=dict(width=0),
-                          fillcolor=colors["third"], fill='toself',
-                          text="90th percentile", hoverinfo="text"),
-               go.Scatter(x=np.append(hours, np.flip(hours)),
-                          y=np.append(p25, np.flip(p75)),
-                          mode="lines", hoveron='fills', line=dict(width=0),
-                          fillcolor=colors["second"], fill='toself',
-                          text="50th percentile", hoverinfo="text"),
+                             y=np.append(p10, np.flip(p90)),
+                             mode="lines", hoveron='fills', line=dict(width=0),
+                             fillcolor=colors["third"], fill='toself',
+                             text="90th percentile", hoverinfo="text",
+                             showlegend=False,),
+                   go.Scatter(x=np.append(hours, np.flip(hours)),
+                              y=np.append(p25, np.flip(p75)),
+                              mode="lines", hoveron='fills', line=dict(width=0),
+                              fillcolor=colors["second"], fill='toself',
+                              text="50th percentile", hoverinfo="text",
+                              showlegend=False),
                go.Scatter(x=hours,
                           y=p50,
                           mode="lines", line=dict(width=5, color=colors["first"]),
-                          text="median", hoverinfo="y", hovertemplate = '<br>%{y:3.0f} mg/dl')]
+                          text="median", hoverinfo="y", hovertemplate='<br>%{y:3.0f} mg/dl',
+                          showlegend=False,)]
 
     #get last day cgm data
     if show_today:
@@ -77,18 +80,21 @@ def agp_graph(cgm_access,n=14, show_today=True, show_grid=True):
         else:
             if df_last_day is not None:
                 ylim = max(ylim, df_last_day[cgm_access.GLUCOSE_COLUMN].max())
-                last_day_graph = [go.Scatter(x=df_last_day[cgm_access.DATETIME_COLUMN].apply(lambda x: x.hour+x.minute/60 + x.second/(3600)).values,
-                                              y=np.array(df_last_day[cgm_access.GLUCOSE_COLUMN].values, dtype=int),
-                                              marker=dict(size=7, color=colors["bright"],
-                                              line=dict(color="white", width=1)),
-                                              mode="markers", hoverinfo="y",  hovertemplate = '%{y:3.0f} mg/dl')]
+                hours = df_last_day[cgm_access.DATETIME_COLUMN].apply(lambda x: x.hour + x.minute / 60 + x.second / (3600)).values
+                strings = df_last_day[cgm_access.DATETIME_COLUMN].apply(lambda x: x.strftime("%H:%M")).values
+                last_day_graph = [go.Scatter(x=hours,
+                                             y=np.array(df_last_day[cgm_access.GLUCOSE_COLUMN].values, dtype=int),
+                                             marker=dict(size=7, color=colors["bright"], line=dict(color="white", width=1)),
+                                             text=strings,
+                                             mode="markers", hoverinfo="y+text",  hovertemplate = '%{y:3.0f} mg/dl <br> %{text}',
+                                             showlegend=False)]
                 graphs = graphs + last_day_graph
     return {
         'data': graphs,
         'layout': go.Layout(
-            xaxis=dict(type='linear', zeroline=False, range=[0, 24], #title='time of day',
-                       ticktext=["2:00", "7:00", "12:00", "17:00", "22:00"],
-                       tickvals=[2, 7, 12, 17, 22], gridcolor=colors["text"], showgrid=show_grid),
+            xaxis=dict(type='linear', zeroline=False, range=[0, 24],
+                       ticktext=["06:00", "12:00", "18:00"],
+                       tickvals=[6, 12, 18], gridcolor=colors["text"], showgrid=show_grid),
             yaxis=dict(type='linear', zeroline=False, range=[25,ylim], #title='glucose',
                        tickvals=[70, 180, 220],
                        ticktext=["70", "180", "220"], gridcolor=colors["text"], showgrid=show_grid),
@@ -103,8 +109,8 @@ def agp_graph(cgm_access,n=14, show_today=True, show_grid=True):
 
 def get_headline(t, g):
     dt = (datetime.now() - t)
-    headline = "{:.0f} mg/dl ({:02d}:{:02d}:{:02d} ago) "\
-        .format(g, int(dt.seconds / 3600), int(np.mod(dt.seconds / 60, 60)), int(np.mod(dt.seconds, 60)))
+    headline = "{:.0f} mg/dl ({} min ago) "\
+        .format(g, int(dt.seconds / 60))#, int(np.mod(dt.seconds / 60, 60)), int(np.mod(dt.seconds, 60)))
     return headline
 
 
@@ -133,15 +139,16 @@ app.layout = html.Div(style={'backgroundColor': colors['background'], 'color': c
             html.Div(className="six columns", children=html.Div([blank_graph(id="pentagon", height=150)]))]),
 
     dcc.Interval(id='update_tir_interval', interval=30*60*1000),
-    dcc.Interval(id='update_agp_interval', interval=10*1000),
-    dcc.Interval(id='update_headline_interval', interval=1*1000),
-    dcc.Interval(id='startup_interval', interval=1*1000,max_intervals=1)
+    dcc.Interval(id='update_agp_interval', interval=1*60*1000),
+    #dcc.Interval(id='update_headline_interval', interval=1*60*1000),
+    dcc.Interval(id='startup_interval', interval=1*1000, max_intervals=1)
 
 ])
 
 
 @app.callback([Output("agp_graph", "figure"), Output("last_loaded_div", "children")],
-              [Input('update_agp_interval', 'n_intervals'),Input("startup_interval","n_intervals"),
+              [Input('update_agp_interval', 'n_intervals'),
+               Input("startup_interval", "n_intervals"),
                Input('checkboxes', 'value'),
                Input('day_slider', 'value')])
 def refresh_agp_graph_callback(n_interval_load, n_startup_interval, checkbox_values, slider_value):
@@ -152,8 +159,8 @@ def refresh_agp_graph_callback(n_interval_load, n_startup_interval, checkbox_val
 
 
 @app.callback([Output('title', 'children')],
-              [Input("update_headline_interval", "n_intervals"),
-               Input('update_agp_interval', 'n_intervals')])
+              [Input("update_agp_interval", "n_intervals"),
+               Input("startup_interval", "n_intervals")])
 def refresh_headline_callback(n_interval_headline, n_interval_load):
     headline = "???"
     latest = cgm_access.get_last_entry()
@@ -163,7 +170,8 @@ def refresh_headline_callback(n_interval_headline, n_interval_load):
 
 
 @app.callback([Output('tir_bars', 'figure')],
-              [Input('update_tir_interval', 'n_intervals'), Input("startup_interval","n_intervals")])
+              [Input('update_tir_interval', 'n_intervals'),
+               Input("startup_interval","n_intervals")])
 def refresh_tir_graph(n_intervals,n_startup_interval):
     print("update tir")
     result = cgm_access.agg_last_6_months()
