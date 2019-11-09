@@ -6,10 +6,8 @@ import plotly.graph_objs as go
 import numpy as np
 import sys
 import agp, cgm
-import pandas as pd
-from datetime import datetime, timedelta
-import json
-from time import sleep
+from datetime import datetime
+
 external_stylesheets = ['https://codepen.io/chriddyp/pen/bWLwgP.css',
                         'https://codepen.io/chriddyp/pen/bWLwgP.css']
 
@@ -28,6 +26,7 @@ colors = {
 
 def blank_graph(id, height):
     return dcc.Graph(
+        style={"height":height},
         id=id,
         figure={
             'data': [],
@@ -35,8 +34,7 @@ def blank_graph(id, height):
                 plot_bgcolor=colors['background'],
                 paper_bgcolor=colors['background'],
                 font={'color': colors['text']},
-                showlegend=False,
-                height=height)},
+                showlegend=False)},
         config={
             'displayModeBar': False
         })
@@ -118,8 +116,8 @@ def get_headline(t, g):
     return headline
 
 
-app.layout = html.Div(style={'backgroundColor': colors['background'], 'color': colors['text']}, children=[
-    html.Div([
+app.layout = html.Div(style={"height": "100vh", "width": "100vw", 'backgroundColor': colors['background'], 'color': colors['text']}, children=[
+    html.Div(children=[
         html.Div(style={'width': '49%', 'display': 'inline-block'}, children=[
             html.Div(id='last_loaded_div', children="Last Refresh: ???", style={'width': '200px', 'display': 'inline-block', 'text-align': 'center'}),
             dcc.Checklist(id="checkboxes",
@@ -132,14 +130,16 @@ app.layout = html.Div(style={'backgroundColor': colors['background'], 'color': c
                                 marks=dict(zip([1, 2, 3, 4, 5], ["7d", "14d", "30d", "90d", "365d"]))),
                      style={"width": 200, "marginLeft": 20, 'display': 'inline-block'})
         ]),
-        html.Div(style={'width':'49%', 'display': 'inline-block'}, children=[
-            html.H1(id="title", children='?? mg/dl', style={'textAlign': 'right', 'color': colors['text']})])]),
-    html.Div([blank_graph(id='agp_graph', height=None)]),
+        html.Div(style={'width': '49%', 'display': 'inline-block'},
+                 children=[html.H1(id="title", children='?? mg/dl', style={'textAlign': 'right', 'color': colors['text']})]),
+        html.Div(children=[blank_graph(id='agp_graph', height="70vh")])
+    ]),
 
     html.Div(
+        style={"height": "20vh"},
         className="row",
         children=[
-            html.Div(className="twelve columns", children=blank_graph(id="tir_bars", height=150))]),
+            html.Div(className="twelve columns", children=blank_graph(id="tir_bars",height="20vh"))]),
             #html.Div(className="six columns", children=html.Div([blank_graph(id="pentagon", height=150)]))]),
 
     dcc.Interval(id='update_tir_interval', interval=30*60*1000),
@@ -202,4 +202,8 @@ def refresh_tir_graph(n_intervals,n_startup_interval):
 
 
 if __name__ == '__main__':
-    app.run_server(debug=True, port=8080, host='0.0.0.0')
+    debug = False
+    if "-debug" in sys.argv:
+        print("starting in debug")
+        debug = True
+    app.run_server(debug=debug, port=8080, host='0.0.0.0')
