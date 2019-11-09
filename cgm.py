@@ -122,7 +122,7 @@ class CGMAccess:
         return None
 
     def agg_last_6_months(self):
-        sub_frame = self.get_entries(182)
+        sub_frame = self.get_entries(70)
         if sub_frame is not None:
             sub_frame["year"] = sub_frame.datetime.apply(lambda x: x.year)
             sub_frame["week"] = sub_frame.datetime.apply(lambda x: x.week)

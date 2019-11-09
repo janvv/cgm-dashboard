@@ -10,7 +10,8 @@ import pandas as pd
 from datetime import datetime, timedelta
 import json
 from time import sleep
-external_stylesheets = ['https://codepen.io/chriddyp/pen/bWLwgP.css', 'https://codepen.io/chriddyp/pen/bWLwgP.css']
+external_stylesheets = ['https://codepen.io/chriddyp/pen/bWLwgP.css',
+                        'https://codepen.io/chriddyp/pen/bWLwgP.css']
 
 app = dash.Dash(__name__, external_stylesheets=external_stylesheets)
 
@@ -25,7 +26,7 @@ colors = {
     'third': "rgba(36,123,160,0.75)",
     'signal': "rgba(255,22,84,0.75)"}
 
-def blank_graph(id,height):
+def blank_graph(id, height):
     return dcc.Graph(
         id=id,
         figure={
@@ -35,7 +36,10 @@ def blank_graph(id,height):
                 paper_bgcolor=colors['background'],
                 font={'color': colors['text']},
                 showlegend=False,
-                height=height)})
+                height=height)},
+        config={
+            'displayModeBar': False
+        })
 
 def agp_graph(cgm_access,n=14, show_today=True, show_grid=True):
 
@@ -93,10 +97,10 @@ def agp_graph(cgm_access,n=14, show_today=True, show_grid=True):
         'data': graphs,
         'layout': go.Layout(
             xaxis=dict(type='linear', zeroline=False, range=[0, 24],
-                       ticktext=["06:00", "12:00", "18:00"],
+                       ticktext=["06:00", "12:00", "18:00"], fixedrange=True,
                        tickvals=[6, 12, 18], gridcolor=colors["text"], showgrid=show_grid),
             yaxis=dict(type='linear', zeroline=False, range=[25,ylim], #title='glucose',
-                       tickvals=[70, 180, 220],
+                       tickvals=[70, 180, 220], fixedrange=True,
                        ticktext=["70", "180", "220"], gridcolor=colors["text"], showgrid=show_grid),
             margin={'l': 40, 'b': 40, 't': 10, 'r': 10},
             hovermode='closest',
@@ -121,7 +125,7 @@ app.layout = html.Div(style={'backgroundColor': colors['background'], 'color': c
             dcc.Checklist(id="checkboxes",
                           options=[{'label': 'Today', 'value': 'show_today'},
                                    {'label': 'Grid', 'value': 'show_grid'}],
-                          value=['show_today'],
+                          value=['show_today', "show_grid"],
                           labelStyle={'display': 'inline-block'},
                           style={'display': 'inline-block'}),
             html.Div(dcc.Slider(id="day_slider", min=1, max=5, step=1, value=2,
@@ -130,13 +134,13 @@ app.layout = html.Div(style={'backgroundColor': colors['background'], 'color': c
         ]),
         html.Div(style={'width':'49%', 'display': 'inline-block'}, children=[
             html.H1(id="title", children='?? mg/dl', style={'textAlign': 'right', 'color': colors['text']})])]),
-    html.Div([blank_graph(id='agp_graph',height=None)]),
+    html.Div([blank_graph(id='agp_graph', height=None)]),
 
     html.Div(
         className="row",
         children=[
-            html.Div(className="six columns", children=blank_graph(id="tir_bars", height=150)),
-            html.Div(className="six columns", children=html.Div([blank_graph(id="pentagon", height=150)]))]),
+            html.Div(className="twelve columns", children=blank_graph(id="tir_bars", height=150))]),
+            #html.Div(className="six columns", children=html.Div([blank_graph(id="pentagon", height=150)]))]),
 
     dcc.Interval(id='update_tir_interval', interval=30*60*1000),
     dcc.Interval(id='update_agp_interval', interval=1*60*1000),
@@ -186,8 +190,13 @@ def refresh_tir_graph(n_intervals,n_startup_interval):
     return [{'data': [go.Bar(x=result[0], y=hypos, name='hypos', marker=go.bar.Marker(color=colors["signal"]), hoverinfo="y+x", hovertemplate= '%{y:3.1%}'),
                       go.Bar(x=result[0], y=range, name='in range', marker=go.bar.Marker(color=colors["second"]),hoverinfo="y+x", hovertemplate= '%{y:3.1%}'),
                       go.Bar(x=result[0], y=hyprs, name='hypers', marker=go.bar.Marker(color=colors["bright"]),hoverinfo="y+x", hovertemplate= '%{y:3.1%}')],
-             'layout': go.Layout(yaxis=dict(range=[0, 1]), barmode='stack', margin={'l': 40, 'b': 40, 't': 10, 'r': 10},
-                                 plot_bgcolor=colors['background'], paper_bgcolor=colors['background'], showlegend=False,
+             'layout': go.Layout(yaxis=dict(fixedrange=True),
+                                 xaxis=dict(fixedrange=True),
+                                 barmode='stack', margin={'l': 40, 'b': 40, 't': 10, 'r': 10},
+                                 plot_bgcolor=colors['background'],
+                                 paper_bgcolor=colors['background'],
+                                 showlegend=False,
+
                                  font={'color': colors['text']})}]
 
 
