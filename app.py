@@ -90,9 +90,9 @@ def agp_graph(cgm_access,n=14, show_today=True, show_grid=True, show_curves=True
                              fillcolor=colors["second"], fill='toself',
                              text="50th percentile", hoverinfo="text",
                              showlegend=False)]
+        graphs = graphs + fill_above(hours, p25, p75, 70, 180)
         graphs = graphs + [go.Scatter(x=hours, y=p50, mode="lines", line=dict(width=5, color=colors["first"]),
                           text="median", hoverinfo="y", hovertemplate='<br>%{y:3.0f} mg/dl',showlegend=False)]
-        graphs = graphs +  fill_above(hours, p25, p75, 70, 180)
 
     #get last day cgm data
     if show_today:
