@@ -141,7 +141,9 @@ if __name__ == '__main__':
     access = CGMAccess()
 
     tic()
-    agg = access.agg_last_6_months()
-    print(agg)
+    df = access.get_entries(10)
+    groups = df.groupby(df[access.DATETIME_COLUMN].apply(lambda x: x.date()))
+    for date,sub_frame in groups:
+        sub_frame.plot.plot()
     toc()
 

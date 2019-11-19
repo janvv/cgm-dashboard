@@ -7,3 +7,6 @@ venv/*
 .idea/*
 __pycache__/*
 .ipynb_checkpoints/*
+*.kml
+Google KML.ipynb
+Prototyping.ipynb
