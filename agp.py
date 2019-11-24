@@ -57,7 +57,7 @@ def smooth(x, order = 1):
 
 def interpolate(series):
     fun = lambda x, y: interp.CubicSpline(x, y, bc_type='periodic')
-    hours = np.linspace(0, 24, 200)
+    hours = np.linspace(0, 23.99, 200)
     values = fun(series.index.values, series.values)(hours)
     return pd.Series(data=values, index=hours, name=series.name)
 

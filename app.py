@@ -6,7 +6,7 @@ import plotly.graph_objs as go
 import numpy as np
 import sys
 import agp, cgm
-from datetime import datetime
+from datetime import datetime, time
 
 external_stylesheets = ['https://codepen.io/chriddyp/pen/bWLwgP.css',
                         'https://codepen.io/chriddyp/pen/bWLwgP.css']
@@ -61,38 +61,72 @@ def fill_above(X, Ylow, Ytop, thresh_bottom, thresh_top):
     return [fill_top,fill_bottom]
 
 
+def shift(x, shift):
+    temp = (x+shift) % 24
+    return temp, np.argsort(temp)
 
-def agp_graph(cgm_access,n=14, show_today=True, show_grid=True, show_curves=True):
 
+def agp_components(df, start=0):
+    stats = agp.calculateHourlyStats(df, datetime_column=cgm_access.DATETIME_COLUMN,
+                                     glucose_column=cgm_access.GLUCOSE_COLUMN,
+                                     smoothed=False, interpolated=True)
+
+    index_copy = stats.index.values
+    index_copy[index_copy < start] += 24
+    stats.index = index_copy
+    stats.sort_index(inplace=True)
+
+    hours, p10, p25, p50, p75, p90 = stats.index.values, stats.glucose.p_10.values, stats.glucose.p_25.values, \
+                                     stats.glucose.p_50.values, stats.glucose.p_75.values, stats.glucose.p_90.values
+
+    graphs = [go.Scatter(x=np.append(hours, np.flip(hours)),
+                         y=np.append(p10, np.flip(p90)),
+                         mode="lines", hoveron='fills', line=dict(width=0),
+                         fillcolor=colors["third"], fill='toself',
+                         text="90th percentile", hoverinfo="text",
+                         showlegend=False, ),
+              go.Scatter(x=np.append(hours, np.flip(hours)),
+                         y=np.append(p25, np.flip(p75)),
+                         mode="lines", hoveron='fills', line=dict(width=0),
+                         fillcolor=colors["second"], fill='toself',
+                         text="50th percentile", hoverinfo="text",
+                         showlegend=False)]
+    graphs += fill_above(hours, p25, p75, 70, 180)
+    graphs += [go.Scatter(x=hours, y=p50, mode="lines", line=dict(width=5, color=colors["first"]),
+                          text="median", hoverinfo="y", hovertemplate='<br>%{y:3.0f} mg/dl', showlegend=False)]
+    return graphs
+
+def major_formatter(x):
+    if x == 24:
+        d = time(hour=23, minute=59, second=59)
+    else:
+        d = time(hour=np.mod(int(x), 24), minute=int(60*(x-int(x))))
+    return d.strftime('%H:%M')
+
+
+def top_graph(cgm_access,n=14, show_today=True, show_grid=True, centered=False):
     ylim = 275
+
+    start = 0
+    end = 24
+    ticks = [0,4,8,12,16,20]
+    if centered:
+        now = datetime.now()
+        now_hour = now.hour + now.minute / 60
+        preview = 6
+        start = (now_hour + preview) % 24 if centered else 0
+        end = start + 24
+        ticks = np.append(ticks, now.hour+now.minute/60)
+        ticks[ticks < start] += 24
+
+
     graphs = []
     try:
         df = cgm_access.get_entries(n)
-        stats = agp.calculateHourlyStats(df,
-                                         datetime_column=cgm_access.DATETIME_COLUMN,
-                                         glucose_column=cgm_access.GLUCOSE_COLUMN,
-                                         smoothed=False, interpolated=True)
-        hours, p10, p25, p50, p75, p90 = stats.index.values, stats.glucose.p_10.values, stats.glucose.p_25.values, \
-                                         stats.glucose.p_50.values, stats.glucose.p_75.values, stats.glucose.p_90.values
-        ylim = 300
+        graphs = graphs + agp_components(df, start)
     except Exception as e:
         print("error creating AGP: {}".format(e))
-    else:
-        graphs = [go.Scatter(x=np.append(hours, np.flip(hours)),
-                             y=np.append(p10, np.flip(p90)),
-                             mode="lines", hoveron='fills', line=dict(width=0),
-                             fillcolor=colors["third"], fill='toself',
-                             text="90th percentile", hoverinfo="text",
-                             showlegend=False,),
-                  go.Scatter(x=np.append(hours, np.flip(hours)),
-                             y=np.append(p25, np.flip(p75)),
-                             mode="lines", hoveron='fills', line=dict(width=0),
-                             fillcolor=colors["second"], fill='toself',
-                             text="50th percentile", hoverinfo="text",
-                             showlegend=False)]
-        graphs = graphs + fill_above(hours, p25, p75, 70, 180)
-        graphs = graphs + [go.Scatter(x=hours, y=p50, mode="lines", line=dict(width=5, color=colors["first"]),
-                          text="median", hoverinfo="y", hovertemplate='<br>%{y:3.0f} mg/dl',showlegend=False)]
+
 
     #get last day cgm data
     if show_today:
@@ -111,30 +145,13 @@ def agp_graph(cgm_access,n=14, show_today=True, show_grid=True, show_curves=True
                                              mode="markers", hoverinfo="y+text",  hovertemplate = '%{y:3.0f} mg/dl <br> %{text}',
                                              showlegend=False)]
                 graphs = graphs + last_day_graph
-    if show_curves:
-        try:
-            df = cgm_access.get_entries(n)
-        except Exception as e:
-            print("Error while adding day scatter plot: {}".format(e))
-        else:
-            if df is not None:
-                days = df.groupby(df[cgm_access.DATETIME_COLUMN].apply(lambda x: x.date()))
-                hours = df_last_day[cgm_access.DATETIME_COLUMN].apply(lambda x: x.hour + x.minute/60 + x.second/3600).values
-                strings = df_last_day[cgm_access.DATETIME_COLUMN].apply(lambda x: x.strftime("%H:%M")).values
-                last_day_graph = [go.Scatter(x=hours,
-                                             y=np.array(df_last_day[cgm_access.GLUCOSE_COLUMN].values, dtype=int),
-                                             marker=dict(size=7, color=colors["bright"], line=dict(color="white", width=1)),
-                                             text=strings,
-                                             mode="markers", hoverinfo="y+text",  hovertemplate = '%{y:3.0f} mg/dl <br> %{text}',
-                                             showlegend=False)]
-                graphs = graphs + last_day_graph
     return {
         'data': graphs,
         'layout': go.Layout(
-            xaxis=dict(type='linear', zeroline=False, range=[0, 24],
-                       ticktext=["06:00", "12:00", "18:00"], fixedrange=True,
-                       tickvals=[6, 12, 18], gridcolor=colors["text"], showgrid=show_grid),
-            yaxis=dict(type='linear', zeroline=False, range=[25,ylim], #title='glucose',
+            xaxis=dict(type='linear', zeroline=False, range=[start, end],
+                       ticktext=[major_formatter(x) for x in ticks], fixedrange=True,
+                       tickvals=ticks, gridcolor=colors["text"], showgrid=show_grid),
+            yaxis=dict(type='linear', zeroline=False, range=[25, ylim], #title='glucose',
                        tickvals=[70, 180, 220], fixedrange=True,
                        ticktext=["70", "180", "220"], gridcolor=colors["text"], showgrid=show_grid),
             margin={'l': 40, 'b': 40, 't': 10, 'r': 10},
@@ -170,7 +187,7 @@ app.layout = html.Div(style={"height": "100vh", "width": "100vw", 'backgroundCol
             html.Div(id='last_loaded_div', children="Last Refresh: ???", style={'width': '200px', 'display': 'inline-block', 'text-align': 'center'}),
             dcc.Checklist(id="checkboxes",
                           options=[{'label': 'Today', 'value': 'show_today'},
-                                   {'label': 'Lines', 'value': 'show_curves'},
+                                   {'label': 'Center', 'value': 'centered'},
                                    {'label': 'Grid', 'value': 'show_grid'}],
                           value=['show_today', "show_grid"],
                           labelStyle={'display': 'inline-block'},
@@ -181,7 +198,7 @@ app.layout = html.Div(style={"height": "100vh", "width": "100vw", 'backgroundCol
         ]),
         html.Div(className="six columns", id="title")
     ]),
-    html.Div(children=[blank_graph(id='agp_graph', height="70vh")]),
+    html.Div(children=[blank_graph(id='top_graph', height="70vh")]),
 
     html.Div(
         style={"height": "20vh"},
@@ -195,7 +212,7 @@ app.layout = html.Div(style={"height": "100vh", "width": "100vw", 'backgroundCol
     dcc.Interval(id='startup_interval', interval=1*1000, max_intervals=1)
     ])
 
-@app.callback([Output("agp_graph", "figure"),
+@app.callback([Output("top_graph", "figure"),
                Output("last_loaded_div", "children"),
                Output('title', 'children')],
               [Input('update_agp_interval', 'n_intervals'),
@@ -205,10 +222,10 @@ app.layout = html.Div(style={"height": "100vh", "width": "100vw", 'backgroundCol
 def refresh_agp_graph_callback(n_interval_load, n_startup_interval, checkbox_values, slider_value):
     num_days = [7, 14, 30, 90, 365][slider_value-1]
     last_loaded = "last refresh {}".format(datetime.now().strftime("%H:%M:%S"))
-    return [agp_graph(cgm_access, n=num_days,
+    return [top_graph(cgm_access, n=num_days,
                       show_today="show_today" in checkbox_values,
                       show_grid="show_grid" in checkbox_values,
-                      show_curves="show_curves" in checkbox_values),
+                      centered="centered" in checkbox_values),
             last_loaded,
             get_headline()]
 
