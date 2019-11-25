@@ -6,7 +6,7 @@ import plotly.graph_objs as go
 import numpy as np
 import sys
 import agp, cgm
-from datetime import datetime, time
+from datetime import datetime, time, timedelta
 
 external_stylesheets = ['https://codepen.io/chriddyp/pen/bWLwgP.css',
                         'https://codepen.io/chriddyp/pen/bWLwgP.css']
@@ -110,15 +110,18 @@ def top_graph(cgm_access,n=14, show_today=True, show_grid=True, centered=False):
     start = 0
     end = 24
     ticks = [0,4,8,12,16,20]
+    preview = 0
+
     if centered:
+        preview = 6
         now = datetime.now()
         now_hour = now.hour + now.minute / 60
-        preview = 6
-        start = (now_hour + preview) % 24 if centered else 0
+        start = (now_hour + preview) % 24
         end = start + 24
         ticks = np.append(ticks, now.hour+now.minute/60)
         ticks[ticks < start] += 24
 
+    print("start={} end = {}".format(start,end))
 
     graphs = []
     try:
@@ -131,20 +134,32 @@ def top_graph(cgm_access,n=14, show_today=True, show_grid=True, centered=False):
     #get last day cgm data
     if show_today:
         try:
-            df_last_day = cgm_access.get_current_day_entries()
-        except Exception as e:
-            print("Error while adding day scatter plot: {}".format(e))
-        else:
+            df_last_day = cgm_access.get_entries(1)
+            df_last_day["hour"] = df_last_day[cgm_access.DATETIME_COLUMN].apply(lambda x: x.hour + x.minute / 60 + x.second / 3600)
+
             if df_last_day is not None:
-                hours = df_last_day[cgm_access.DATETIME_COLUMN].apply(lambda x: x.hour + x.minute/60 + x.second/3600).values
+                if centered:
+                    cut_off = datetime.now() - timedelta(hours=24.0 - preview)#prevent warping
+                else:
+                    cut_off = datetime.now().date()#beginning of today
+
+                df_last_day = df_last_day.loc[df_last_day[cgm_access.DATETIME_COLUMN] > cut_off]
+                df_last_day.loc[df_last_day.hour < start, "hour"] = df_last_day[df_last_day.hour < start].hour + 24
+
+                hours = df_last_day.hour.values
+                glucose = np.array(df_last_day[cgm_access.GLUCOSE_COLUMN].values,dtype=int)
                 strings = df_last_day[cgm_access.DATETIME_COLUMN].apply(lambda x: x.strftime("%H:%M")).values
-                last_day_graph = [go.Scatter(x=hours,
-                                             y=np.array(df_last_day[cgm_access.GLUCOSE_COLUMN].values, dtype=int),
-                                             marker=dict(size=7, color=colors["bright"], line=dict(color="white", width=1)),
+
+                last_day_graph = [go.Scatter(x=hours, y=glucose ,
+                                             marker=dict(size=7, color=colors["bright"],
+                                                         line=dict(color="white", width=1)),
                                              text=strings,
-                                             mode="markers", hoverinfo="y+text",  hovertemplate = '%{y:3.0f} mg/dl <br> %{text}',
+                                             mode="markers", hoverinfo="y+text",
+                                             hovertemplate='%{y:3.0f} mg/dl <br> %{text}',
                                              showlegend=False)]
                 graphs = graphs + last_day_graph
+        except Exception as e:
+            print("Error while adding day scatter plot: {}".format(e))
     return {
         'data': graphs,
         'layout': go.Layout(

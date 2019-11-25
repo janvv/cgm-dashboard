@@ -141,9 +141,10 @@ if __name__ == '__main__':
     access = CGMAccess()
 
     tic()
-    df = access.get_entries(10)
-    groups = df.groupby(df[access.DATETIME_COLUMN].apply(lambda x: x.date()))
-    for date,sub_frame in groups:
-        sub_frame.plot.plot()
-    toc()
+    df = access.get_entries(1)
+    df.to_pickle("sample")
+    #groups = df.groupby(df[access.DATETIME_COLUMN].apply(lambda x: x.date()))
+    #for date,sub_frame in groups:
+    #    sub_frame.plot.plot()
+    #toc()
 
