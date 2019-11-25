@@ -6,6 +6,8 @@ import plotly.graph_objs as go
 import numpy as np
 import sys
 import agp, cgm
+
+from adapter import DATETIME_COLUMN, GLUCOSE_COLUMN
 from datetime import datetime, time, timedelta
 
 external_stylesheets = ['https://codepen.io/chriddyp/pen/bWLwgP.css',
@@ -67,8 +69,8 @@ def shift(x, shift):
 
 
 def agp_components(df, start=0):
-    stats = agp.calculateHourlyStats(df, datetime_column=cgm_access.DATETIME_COLUMN,
-                                     glucose_column=cgm_access.GLUCOSE_COLUMN,
+    stats = agp.calculateHourlyStats(df, datetime_column=DATETIME_COLUMN,
+                                     glucose_column=GLUCOSE_COLUMN,
                                      smoothed=False, interpolated=True)
 
     index_copy = stats.index.values
@@ -135,7 +137,7 @@ def top_graph(cgm_access,n=14, show_today=True, show_grid=True, centered=False):
     if show_today:
         try:
             df_last_day = cgm_access.get_entries(1)
-            df_last_day["hour"] = df_last_day[cgm_access.DATETIME_COLUMN].apply(lambda x: x.hour + x.minute / 60 + x.second / 3600)
+            df_last_day["hour"] = df_last_day[DATETIME_COLUMN].apply(lambda x: x.hour + x.minute / 60 + x.second / 3600)
 
             if df_last_day is not None:
                 if centered:
@@ -143,12 +145,12 @@ def top_graph(cgm_access,n=14, show_today=True, show_grid=True, centered=False):
                 else:
                     cut_off = datetime.now().date()#beginning of today
 
-                df_last_day = df_last_day.loc[df_last_day[cgm_access.DATETIME_COLUMN] > cut_off]
+                df_last_day = df_last_day.loc[df_last_day[DATETIME_COLUMN] > cut_off]
                 df_last_day.loc[df_last_day.hour < start, "hour"] = df_last_day[df_last_day.hour < start].hour + 24
 
                 hours = df_last_day.hour.values
-                glucose = np.array(df_last_day[cgm_access.GLUCOSE_COLUMN].values,dtype=int)
-                strings = df_last_day[cgm_access.DATETIME_COLUMN].apply(lambda x: x.strftime("%H:%M")).values
+                glucose = np.array(df_last_day[GLUCOSE_COLUMN].values,dtype=int)
+                strings = df_last_day[DATETIME_COLUMN].apply(lambda x: x.strftime("%H:%M")).values
 
                 last_day_graph = [go.Scatter(x=hours, y=glucose ,
                                              marker=dict(size=7, color=colors["bright"],
@@ -182,11 +184,11 @@ def get_headline():
 
     latest = cgm_access.get_last_entry()
     if latest is not None:
-        minutes = (datetime.now() - latest[cgm_access.DATETIME_COLUMN]).seconds/60
+        minutes = (datetime.now() - latest[DATETIME_COLUMN]).seconds/60
         #t_div = html.Div("mg/dl ({} min ago)".format(int(minutes)), style={'marginLeft':8, 'marginRight':12, 'display': 'inline-block', "font-size": 24})
-        children = [html.Div("{:.0f}".format(latest[cgm_access.GLUCOSE_COLUMN]),
+        children = [html.Div("{:.0f}".format(latest[GLUCOSE_COLUMN]),
                              style={'display': 'inline-block', "font-size": 56}),
-                    html.Div("mg/dl".format(latest[cgm_access.GLUCOSE_COLUMN]),
+                    html.Div("mg/dl".format(latest[GLUCOSE_COLUMN]),
                              style={'marginLeft': 8, 'marginRight': 16, 'display': 'inline-block', "font-size": 24})]
         if minutes < 15:
             return html.Div(children=children, style={'textAlign': 'right'})
@@ -246,7 +248,7 @@ def refresh_agp_graph_callback(n_interval_load, n_startup_interval, checkbox_val
 
 @app.callback([Output('tir_bars', 'figure')],
               [Input('update_tir_interval', 'n_intervals'),
-               Input("startup_interval","n_intervals")])
+               Input('startup_interval', 'n_intervals')])
 def refresh_tir_graph(n_intervals,n_startup_interval):
     result = cgm_access.agg_last_6_months()
 
@@ -257,9 +259,9 @@ def refresh_tir_graph(n_intervals,n_startup_interval):
     hypos = np.array([r[0] for r in result[1]])
     range = np.array([r[1] for r in result[1]])
     hyprs = np.array([r[2] for r in result[1]])
-    return [{'data': [go.Bar(x=result[0], y=hypos, name='hypos', marker=go.bar.Marker(color=colors["signal"]), hoverinfo="y+x", hovertemplate= '%{y:3.1%}'),
-                      go.Bar(x=result[0], y=range, name='in range', marker=go.bar.Marker(color=colors["second"]),hoverinfo="y+x", hovertemplate= '%{y:3.1%}'),
-                      go.Bar(x=result[0], y=hyprs, name='hypers', marker=go.bar.Marker(color=colors["bright"]),hoverinfo="y+x", hovertemplate= '%{y:3.1%}')],
+    return [{'data': [go.Bar(x=result[0], y=hypos, name='hypos', marker=go.bar.Marker(color=colors["signal"]), hoverinfo="y+x", hovertemplate='%{y:3.1%}'),
+                      go.Bar(x=result[0], y=range, name='in range', marker=go.bar.Marker(color=colors["second"]), hoverinfo="y+x", hovertemplate='%{y:3.1%}'),
+                      go.Bar(x=result[0], y=hyprs, name='hypers', marker=go.bar.Marker(color=colors["bright"]), hoverinfo="y+x", hovertemplate='%{y:3.1%}')],
              'layout': go.Layout(yaxis=dict(fixedrange=True),
                                  xaxis=dict(fixedrange=True),
                                  barmode='stack', margin={'l': 40, 'b': 40, 't': 10, 'r': 10},
