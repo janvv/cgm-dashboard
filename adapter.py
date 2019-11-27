@@ -1,3 +1,4 @@
+import requests
 from pymongo import MongoClient, ASCENDING, DESCENDING, errors
 import logging
 import pandas as pd
@@ -44,15 +45,19 @@ class DataBase:
 
         try:
             tuples = self.adapter.query(t_start, t_end)
-            if len(tuples)>0:
-                if len(tuples) > 0:
-                    print("queried {} new entries".format(len(tuples)))
-                    temp_df = pd.DataFrame(data=tuples, columns=[DATETIME_COLUMN, GLUCOSE_COLUMN])
-                    self.df = self.df.append(temp_df, sort=False, ignore_index=True).drop_duplicates()
-                    # TODO: ATM  we can not use the last item from the pandas dataframe because it gives a different timestamp (tizezone specific)
-                    t, g = zip(*tuples)
-                    datetime_latest_queried_item = max(t).timestamp()
-                    print("latest found = {}".format(max(t)))
+            if len(tuples) > 0:
+                #print("queried {} new entries".format(len(tuples)))
+                temp_df = pd.DataFrame(data=tuples, columns=[DATETIME_COLUMN, GLUCOSE_COLUMN])
+                self.df = self.df.append(temp_df, sort=False, ignore_index=True).drop_duplicates()
+                # TODO: ATM  we can not use the last item from the pandas dataframe because it gives a different timestamp (tizezone specific)
+                #Right now, the datetime objects are not carrying timezone information
+                #the times are therefore always in UTC
+                #Any sort of manipulation (getting the hour) automatically is converted into local timezone
+                #Need to change to timezone aware objects to avoid inconsistencies
+                #i.e. local time of day will be different depending on timezone the data is processed in
+                t, g = zip(*tuples)
+                datetime_latest_queried_item = max(t).timestamp()
+                print("latest found = {}".format(max(t)))
 
         except errors.PyMongoError as e:
             self.logger.error("Error while querying for last entries: \n {}".format(e))
@@ -102,4 +107,21 @@ class MongoAdapter(Adapter):
         results = entries.find({"sgv": {"$gt": 0}, "date": {"$gt": t_start * 1000, "$lt": t_end * 1000}},
                                ["sgv", "date"], sort=[("date", DESCENDING)])
         tuples = [(datetime.fromtimestamp(r["date"] / 1000), r["sgv"]) for r in results]
+        return tuples
+
+
+class RestAdapter(Adapter):
+    def __init__(self, params):
+        super().__init__()
+        self.url = 'https://{}:{}/api/v1/entries/sgv.json'.format(params["domain"], params["port"])
+
+    def query(self, t_start, t_end):
+        params = {"find[date][$gt]": int(t_start*1000),
+                  "find[date][$lt]": int(t_end*1000),
+                  "count": max(100000, 20*(t_end-t_start)/(60*60))}
+        response = requests.get(self.url, params=params)
+        print(self.url, params)
+        tuples = [(datetime.fromtimestamp(j["date"] / 1000), #, timezone(timedelta(minutes=j["utcOffset"]))),
+                   j["sgv"]) for j in response.json()]
+        print("queried {} tuples".format(len(tuples)))
         return tuples

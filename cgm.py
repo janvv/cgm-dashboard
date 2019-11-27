@@ -3,7 +3,7 @@ import logging
 import pandas as pd
 from datetime import datetime, timedelta, timezone
 import time
-from adapter import DataBase, MongoAdapter, Adapter, DATETIME_COLUMN, GLUCOSE_COLUMN
+from adapter import DataBase, MongoAdapter, RestAdapter, Adapter, DATETIME_COLUMN, GLUCOSE_COLUMN
 
 t = None
 def tic():
@@ -20,7 +20,6 @@ def fraction_ranges(s):
 class CGMAccess:
     def __init__(self):
         self.logger = logging.getLogger(self.__module__)
-        self.logger.info("Connecting to mongo db ...")
         config = ConfigParser()
         config.read('config.ini')
         section = config.sections()[0]
@@ -28,7 +27,12 @@ class CGMAccess:
         #connect to datbase
         self.database = None
         if section == "MongoDB":
+            self.logger.info("Using MongoDB Adapter ...")
             adapter = MongoAdapter(config["MongoDB"])
+            self.database = DataBase(adapter)
+        elif section == "REST":
+            self.logger.info("Using REST Adapter...")
+            adapter = RestAdapter(config["REST"])
             self.database = DataBase(adapter)
 
     def get_entries(self, n_days=14, update=True):
