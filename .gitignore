@@ -10,3 +10,6 @@ __pycache__/*
 *.kml
 Google KML.ipynb
 Prototyping.ipynb
+Moving AGP.ipynb
+REST Adapter.ipynb
+sample
