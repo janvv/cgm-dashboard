@@ -5,9 +5,11 @@ from dash.dependencies import Input, Output, State
 import plotly.graph_objs as go
 import numpy as np
 import sys
-import agp, cgm
-
-from adapter import DATETIME_COLUMN, GLUCOSE_COLUMN
+import cgm
+from configparser import ConfigParser
+import logging
+from adapter import MongoAdapter, RestAdapter
+from database import DataBase, DATETIME_COLUMN, GLUCOSE_COLUMN
 from datetime import datetime, time, timedelta
 
 external_stylesheets = ['https://codepen.io/chriddyp/pen/bWLwgP.css',
@@ -15,7 +17,19 @@ external_stylesheets = ['https://codepen.io/chriddyp/pen/bWLwgP.css',
 
 app = dash.Dash(__name__, external_stylesheets=external_stylesheets)
 
-cgm_access = cgm.CGMAccess()
+logger = logging.getLogger(__name__)
+
+#setup database and backend adapter
+config = ConfigParser()
+config.read('config.ini')
+section = config.sections()[0]
+if section == "MongoDB":
+    logger.info("Connecting to MongoDB")
+    adapter = MongoAdapter(config["MongoDB"])
+elif section == "REST":
+    logger.info("Connecting to REST")
+    adapter = RestAdapter(config["REST"])
+database = DataBase(adapter)
 
 colors = {
     'background': '#111111',
@@ -41,6 +55,7 @@ def blank_graph(id, height):
             'displayModeBar': False
         })
 
+
 def fill_above(X, Ylow, Ytop, thresh_bottom, thresh_top):
     bottom1 = np.array([max(thresh_top, y) for y in Ylow])
     top1 = np.array([max(thresh_top, y) for y in Ytop])
@@ -55,23 +70,17 @@ def fill_above(X, Ylow, Ytop, thresh_bottom, thresh_top):
     top2 = np.array([min(thresh_bottom, y) for y in Ytop])
     bottom2 = np.array([min(thresh_bottom, y) for y in Ylow])
     fill_bottom = go.Scatter(x=np.append(X, np.flip(X)),
-                          y=np.append(bottom2, np.flip(top2)),
-                          mode="lines", hoveron='fills', line=dict(width=0),
-                          fillcolor=colors["signal"], fill='toself',
-                          text="50th percentile", hoverinfo="text",
-                          showlegend=False)
-    return [fill_top,fill_bottom]
-
-
-def shift(x, shift):
-    temp = (x+shift) % 24
-    return temp, np.argsort(temp)
+                             y=np.append(bottom2, np.flip(top2)),
+                             mode="lines", hoveron='fills', line=dict(width=0),
+                             fillcolor=colors["signal"], fill='toself',
+                             text="50th percentile", hoverinfo="text",
+                             showlegend=False)
+    return [fill_top, fill_bottom]
 
 
 def agp_components(df, start=0):
-    stats = agp.calculateHourlyStats(df, datetime_column=DATETIME_COLUMN,
-                                     glucose_column=GLUCOSE_COLUMN,
-                                     smoothed=False, interpolated=True)
+    stats = cgm.calculate_hourly_stats(df, datetime_column=DATETIME_COLUMN, glucose_column=GLUCOSE_COLUMN,
+                                       smoothed=False, interpolated=True)
 
     index_copy = stats.index.values
     index_copy[index_copy < start] += 24
@@ -98,6 +107,7 @@ def agp_components(df, start=0):
                           text="median", hoverinfo="y", hovertemplate='<br>%{y:3.0f} mg/dl', showlegend=False)]
     return graphs
 
+
 def major_formatter(x):
     if x == 24:
         d = time(hour=23, minute=59, second=59)
@@ -106,12 +116,11 @@ def major_formatter(x):
     return d.strftime('%H:%M')
 
 
-def top_graph(cgm_access,n=14, show_today=True, show_grid=True, centered=False):
+def top_graph(n=14, show_today=True, show_grid=True, centered=False):
     ylim = 275
-
     start = 0
     end = 24
-    ticks = [0,4,8,12,16,20]
+    ticks = [0, 4, 8, 12, 16, 20]
     preview = 0
 
     if centered:
@@ -127,7 +136,7 @@ def top_graph(cgm_access,n=14, show_today=True, show_grid=True, centered=False):
 
     graphs = []
     try:
-        df = cgm_access.get_entries(n)
+        df = database.get_entries(n)
         graphs = graphs + agp_components(df, start)
     except Exception as e:
         print("error creating AGP: {}".format(e))
@@ -136,7 +145,7 @@ def top_graph(cgm_access,n=14, show_today=True, show_grid=True, centered=False):
     #get last day cgm data
     if show_today:
         try:
-            df_last_day = cgm_access.get_entries(1)
+            df_last_day = database.get_entries(1)
             df_last_day["hour"] = df_last_day[DATETIME_COLUMN].apply(lambda x: x.hour + x.minute / 60 + x.second / 3600)
 
             if df_last_day is not None:
@@ -182,7 +191,7 @@ def top_graph(cgm_access,n=14, show_today=True, show_grid=True, centered=False):
 
 def get_headline():
 
-    latest = cgm_access.get_last_entry()
+    latest = database.get_last_entry()
     if latest is not None:
         minutes = (datetime.now() - latest[DATETIME_COLUMN]).seconds/60
         #t_div = html.Div("mg/dl ({} min ago)".format(int(minutes)), style={'marginLeft':8, 'marginRight':12, 'display': 'inline-block', "font-size": 24})
@@ -221,13 +230,13 @@ app.layout = html.Div(style={"height": "100vh", "width": "100vw", 'backgroundCol
         style={"height": "20vh"},
         className="row",
         children=[
-            html.Div(className="twelve columns", children=blank_graph(id="tir_bars",height="20vh"))]),
-            #html.Div(className="six columns", children=html.Div([blank_graph(id="pentagon", height=150)]))]),
+            html.Div(className="twelve columns", children=blank_graph(id="tir_bars", height="20vh"))]),
 
     dcc.Interval(id='update_tir_interval', interval=30*60*1000),
     dcc.Interval(id='update_agp_interval', interval=1*60*1000),
     dcc.Interval(id='startup_interval', interval=1*1000, max_intervals=1)
     ])
+
 
 @app.callback([Output("top_graph", "figure"),
                Output("last_loaded_div", "children"),
@@ -239,18 +248,20 @@ app.layout = html.Div(style={"height": "100vh", "width": "100vw", 'backgroundCol
 def refresh_agp_graph_callback(n_interval_load, n_startup_interval, checkbox_values, slider_value):
     num_days = [7, 14, 30, 90, 365][slider_value-1]
     last_loaded = "last refresh {}".format(datetime.now().strftime("%H:%M:%S"))
-    return [top_graph(cgm_access, n=num_days,
+    return [top_graph(n=num_days,
                       show_today="show_today" in checkbox_values,
                       show_grid="show_grid" in checkbox_values,
                       centered="centered" in checkbox_values),
             last_loaded,
             get_headline()]
 
+
 @app.callback([Output('tir_bars', 'figure')],
               [Input('update_tir_interval', 'n_intervals'),
                Input('startup_interval', 'n_intervals')])
 def refresh_tir_graph(n_intervals,n_startup_interval):
-    result = cgm_access.agg_last_6_months()
+    sub_frame = database.get_entries(70)
+    result = cgm.agg_weekly(sub_frame)
 
     if result is None:
         return [{'data': [{'x': [], 'y': [], 'type': 'bar'}],

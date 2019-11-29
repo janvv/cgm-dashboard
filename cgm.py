@@ -1,86 +1,64 @@
-from configparser import ConfigParser
-import logging
 import pandas as pd
-from datetime import datetime, timedelta, timezone
-import time
-from adapter import DataBase, MongoAdapter, RestAdapter, Adapter, DATETIME_COLUMN, GLUCOSE_COLUMN
+import numpy as np
+from scipy.interpolate import CubicSpline
 
-t = None
-def tic():
-    global t
-    t = time.time()
-def toc():
-    elapsed = time.time() - t
-    print("elapsed time {}".format(elapsed))
 
 def fraction_ranges(s):
     calc = pd.cut(s, bins=[0, 70, 180, 1000], labels=["hypo", "range", "hyper"]).value_counts() / len(s)
     return calc.hypo, calc.range, calc.hyper
 
-class CGMAccess:
-    def __init__(self):
-        self.logger = logging.getLogger(self.__module__)
-        config = ConfigParser()
-        config.read('config.ini')
-        section = config.sections()[0]
 
-        #connect to datbase
-        self.database = None
-        if section == "MongoDB":
-            self.logger.info("Using MongoDB Adapter ...")
-            adapter = MongoAdapter(config["MongoDB"])
-            self.database = DataBase(adapter)
-        elif section == "REST":
-            self.logger.info("Using REST Adapter...")
-            adapter = RestAdapter(config["REST"])
-            self.database = DataBase(adapter)
-
-    def get_entries(self, n_days=14, update=True):
-        return self.database.get_entries(n_days, update=update)
-
-    def get_last_entry(self, update=False):
-        df = self.database.get_entries(1, update=update)
-        if df is not None:
-            return df.loc[df[DATETIME_COLUMN].idxmax()]
-        else:
-            return None
-
-    def get_current_day_entries(self, update=False):
-        sub_frame = self.database.get_entries(1, update=update)
-        if sub_frame is not None:
-            to_date = datetime.now().date()
-            groups = sub_frame.groupby(sub_frame[DATETIME_COLUMN].apply(lambda x: x.date()))
-            if to_date in groups.groups:
-                result = groups.get_group(to_date)
-                return result
+def agg_weekly(df):
+    if df is not None:
+        df["year"] = df.datetime.apply(lambda x: x.year)
+        df["week"] = df.datetime.apply(lambda x: x.week)
+        g = df.groupby(["year", "week"])
+        agg = g.agg({"glucose": lambda x: fraction_ranges(x)})
+        (year_weeks, fractions) = agg.index.values.flatten(), agg.values.flatten()
+        labels = ["W{}".format(x[1]) for x in agg.index.values]
+        return labels, fractions
+    else:
         return None
 
-    def agg_last_6_months(self):
-        sub_frame = self.database.get_entries(70)
-        if sub_frame is not None:
-            sub_frame["year"] = sub_frame.datetime.apply(lambda x: x.year)
-            sub_frame["week"] = sub_frame.datetime.apply(lambda x: x.week)
-            g = sub_frame.groupby(["year", "week"])
 
-            agg = g.agg({"glucose": lambda x: fraction_ranges(x)})
-            (year_weeks, fractions) = agg.index.values.flatten(), agg.values.flatten()
-            labels = ["W{}".format(x[1]) for x in agg.index.values]
+def calculate_hourly_stats(df, datetime_column, glucose_column, smoothed=False, interpolated=True):
 
-            return labels, fractions
-        else:
-            return None
+    def percentile(n):
+        def percentile_(x):
+            return np.percentile(x, n)
+        percentile_.__name__ = 'p_%s' % n
+        return percentile_
+
+    df['hourD'] = df[datetime_column].apply(lambda x: x.hour)
+    stats = df.groupby('hourD').agg({glucose_column: [percentile(10), percentile(25), percentile(50),
+                                                      percentile(75), percentile(90)]})
 
 
+    # smooth using convolutional filter
+    if smoothed:
+        stats = stats.apply(lambda x: smooth(x.values), axis=0)
+
+    # copy first value to the end -> 24.00 equals 00:00
+    first_row = stats.loc[0]
+    first_row.name = 24
+    stats = stats.append(first_row)
+
+    # interpolate using splines
+    if interpolated:
+        stats = stats.apply(lambda x: interpolate(x), axis=0)
+    return stats
 
 
-if __name__ == '__main__':
-    access = CGMAccess()
+def smooth(x, order=1):
+    x_new = x
+    for i in range(0, order):
+        x_new = np.convolve(x_new, np.array([1.0, 4.0, 1.0]) / 6.0, 'valid')
+        x_new = np.append(np.append(x[0], x_new), x[-1])
+    return x_new
 
-    tic()
-    df = access.get_current_day_entries(True)
-    print(df)
-    #groups = df.groupby(df[access.DATETIME_COLUMN].apply(lambda x: x.date()))
-    #for date,sub_frame in groups:
-    #    sub_frame.plot.plot()
-    #toc()
 
+def interpolate(series):
+    fun = lambda x, y: CubicSpline(x, y, bc_type='periodic')
+    hours = np.linspace(0, 23.99, 200)
+    values = fun(series.index.values, series.values)(hours)
+    return pd.Series(data=values, index=hours, name=series.name)
