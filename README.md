@@ -29,8 +29,10 @@ This will work when you access the website from the same machine running the cod
 Contains all plotly dash code. It configures the graphs and connects it to the data source.
 ### cgm.py
 Provides access to the stored cgm data and performs pre-processing for visual representation.
-### adapter.py
-Handles the data access to a remote database. For now, mongo database access and REST calls are supported.
+### database.py
+Handles the data storage and access. Uses adapter class to request more data from remote service.
+### database.py
+Handles the data access from remote services. For now, mongo database access and REST calls are supported.
 ### config.ini
 Here, you need to fill in your backend credentials.
 
