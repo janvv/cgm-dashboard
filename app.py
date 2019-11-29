@@ -8,7 +8,7 @@ import sys
 import cgm
 from configparser import ConfigParser
 import logging
-from adapter import MongoAdapter, RestAdapter
+from adapter import MongoAdapter, RestAdapter, OfflineAdapter
 from database import DataBase, DATETIME_COLUMN, GLUCOSE_COLUMN
 from datetime import datetime, time, timedelta
 
@@ -29,6 +29,8 @@ if section == "MongoDB":
 elif section == "REST":
     logger.info("Connecting to REST")
     adapter = RestAdapter(config["REST"])
+elif section == "OFFLINE":
+    adapter = OfflineAdapter()
 database = DataBase(adapter)
 
 colors = {
@@ -42,7 +44,7 @@ colors = {
 
 def blank_graph(id, height):
     return dcc.Graph(
-        style={"height":height},
+        style={"height": height},
         id=id,
         figure={
             'data': [],
@@ -132,7 +134,7 @@ def top_graph(n=14, show_today=True, show_grid=True, centered=False):
         ticks = np.append(ticks, now.hour+now.minute/60)
         ticks[ticks < start] += 24
 
-    print("start={} end = {}".format(start,end))
+    print("start={} end = {}".format(start, end))
 
     graphs = []
     try:
@@ -143,6 +145,7 @@ def top_graph(n=14, show_today=True, show_grid=True, centered=False):
 
 
     #get last day cgm data
+    annotations = []
     if show_today:
         try:
             df_last_day = database.get_entries(1)
@@ -158,10 +161,17 @@ def top_graph(n=14, show_today=True, show_grid=True, centered=False):
                 df_last_day.loc[df_last_day.hour < start, "hour"] = df_last_day[df_last_day.hour < start].hour + 24
 
                 hours = df_last_day.hour.values
-                glucose = np.array(df_last_day[GLUCOSE_COLUMN].values,dtype=int)
+                glucose = np.array(df_last_day[GLUCOSE_COLUMN].values, dtype=int)
                 strings = df_last_day[DATETIME_COLUMN].apply(lambda x: x.strftime("%H:%M")).values
+                annotations.append(dict(x=min(max(start+2, hours[-1]), end-2), y=260, xref="x", yref="y",
+                                        text="{:03d}".format(int(glucose[-1])), showarrow=True, arrowhead=7,
+                                        ax=0, ay=0, align = "center",
+                                        font=dict(size=64, color=colors["text"])))
+                #annotations.append(dict(x=hours[-1]+3, y=260-5, xref="x", yref="y", ax=100,
+                #                        text="mg/dl", showarrow=False, align = "left", font=dict(size=24, color="#ffffff")))
 
-                last_day_graph = [go.Scatter(x=hours, y=glucose ,
+
+                last_day_graph = [go.Scatter(x=hours, y=glucose,
                                              marker=dict(size=7, color=colors["bright"],
                                                          line=dict(color="white", width=1)),
                                              text=strings,
@@ -176,15 +186,16 @@ def top_graph(n=14, show_today=True, show_grid=True, centered=False):
         'layout': go.Layout(
             xaxis=dict(type='linear', zeroline=False, range=[start, end],
                        ticktext=[major_formatter(x) for x in ticks], fixedrange=True,
-                       tickvals=ticks, gridcolor=colors["text"], showgrid=show_grid),
-            yaxis=dict(type='linear', zeroline=False, range=[25, ylim], #title='glucose',
+                       tickvals=ticks, gridcolor='#808080', showgrid=show_grid),
+            yaxis=dict(type='linear', zeroline=False, range=[40, ylim], #title='glucose',
                        tickvals=[70, 180, 220], fixedrange=True,
-                       ticktext=["70", "180", "220"], gridcolor=colors["text"], showgrid=show_grid),
+                       ticktext=["70", "180", "220"], gridcolor='#808080', showgrid=show_grid),
             margin={'l': 40, 'b': 40, 't': 10, 'r': 10},
             hovermode='closest',
             plot_bgcolor=colors['background'],
             paper_bgcolor=colors['background'],
             showlegend=False,
+            annotations=annotations,
             font={'color': colors['text']})
     }
 
@@ -196,7 +207,7 @@ def get_headline():
         minutes = (datetime.now() - latest[DATETIME_COLUMN]).seconds/60
         #t_div = html.Div("mg/dl ({} min ago)".format(int(minutes)), style={'marginLeft':8, 'marginRight':12, 'display': 'inline-block', "font-size": 24})
         children = [html.Div("{:.0f}".format(latest[GLUCOSE_COLUMN]),
-                             style={'display': 'inline-block', "font-size": 56}),
+                             style={'display': 'inline-block', "font-size": 64}),
                     html.Div("mg/dl".format(latest[GLUCOSE_COLUMN]),
                              style={'marginLeft': 8, 'marginRight': 16, 'display': 'inline-block', "font-size": 24})]
         if minutes < 15:
@@ -204,33 +215,28 @@ def get_headline():
         else:
             return html.Del(children=children, style={'textAlign': 'right'})
     else:
-        return html.Div("???", style={'textAlign': 'right'})
+        return html.Div("???")
 
 
-app.layout = html.Div(style={"height": "100vh", "width": "100vw", 'backgroundColor': colors['background'], 'color': colors['text']}, children=[
-    html.Div(className="row", children=[
-        html.Div(className="six columns", style={'display': 'inline-block'}, children=[
-            html.Div(id='last_loaded_div', children="Last Refresh: ???", style={'width': '200px', 'display': 'inline-block', 'text-align': 'center'}),
-            dcc.Checklist(id="checkboxes",
-                          options=[{'label': 'Today', 'value': 'show_today'},
-                                   {'label': 'Center', 'value': 'centered'},
-                                   {'label': 'Grid', 'value': 'show_grid'}],
-                          value=['show_today', "show_grid"],
-                          labelStyle={'display': 'inline-block'},
-                          style={'display': 'inline-block'}),
-            html.Div(dcc.Slider(id="day_slider", min=1, max=5, step=1, value=2,
-                                marks=dict(zip([1, 2, 3, 4, 5], ["7d", "14d", "30d", "90d", "365d"]))),
-                     style={"width": 200, "marginLeft": 20, 'display': 'inline-block'})
-        ]),
-        html.Div(className="six columns", id="title")
+app.layout = html.Div(style={"height": "130vh", "width": "100vw",
+                             'backgroundColor': colors['background'], 'color': colors['text']}, children=[
+    #html.Div(id="title", style={"height": "15vh", 'textAlign': 'right'}),
+    html.Div(children=[blank_graph(id='top_graph', height="100vh")]),
+    blank_graph(id="tir_bars", height="20vh"),
+
+    html.Div(style={'display': 'inline-block', 'height':'10vh'}, children=[
+        html.Div(id='last_loaded_div', children="Last Refresh: ???", style={'width': '200px', 'display': 'inline-block', 'text-align': 'center'}),
+        dcc.Checklist(id="checkboxes",
+                      options=[{'label': 'Today', 'value': 'show_today'},
+                               {'label': 'Center', 'value': 'is_centered'},
+                               {'label': 'Grid', 'value': 'show_grid'}],
+                      value=['show_today', 'is_centered', 'show_grid'],
+                      labelStyle={'display': 'inline-block'},
+                      style={'display': 'inline-block'}),
+        html.Div(dcc.Slider(id="day_slider", min=1, max=5, step=1, value=2,
+                            marks=dict(zip([1, 2, 3, 4, 5], ["7d", "14d", "30d", "90d", "365d"]))),
+                 style={"width": 200, "marginLeft": 20, 'display': 'inline-block'})
     ]),
-    html.Div(children=[blank_graph(id='top_graph', height="90vh")]),
-
-    html.Div(
-        style={"height": "20vh"},
-        className="row",
-        children=[
-            html.Div(className="twelve columns", children=blank_graph(id="tir_bars", height="20vh"))]),
 
     dcc.Interval(id='update_tir_interval', interval=30*60*1000),
     dcc.Interval(id='update_agp_interval', interval=1*60*1000),
@@ -239,8 +245,7 @@ app.layout = html.Div(style={"height": "100vh", "width": "100vw", 'backgroundCol
 
 
 @app.callback([Output("top_graph", "figure"),
-               Output("last_loaded_div", "children"),
-               Output('title', 'children')],
+               Output("last_loaded_div", "children")],#Output('title', 'children')],
               [Input('update_agp_interval', 'n_intervals'),
                Input("startup_interval", "n_intervals"),
                Input('checkboxes', 'value'),
@@ -251,9 +256,8 @@ def refresh_agp_graph_callback(n_interval_load, n_startup_interval, checkbox_val
     return [top_graph(n=num_days,
                       show_today="show_today" in checkbox_values,
                       show_grid="show_grid" in checkbox_values,
-                      centered="centered" in checkbox_values),
-            last_loaded,
-            get_headline()]
+                      centered="is_centered" in checkbox_values),
+            last_loaded]#get_headline()]
 
 
 @app.callback([Output('tir_bars', 'figure')],

@@ -2,7 +2,8 @@ import requests
 import logging
 from datetime import datetime
 from pymongo import MongoClient, DESCENDING
-
+import numpy as np
+import math
 class Adapter:
     def __init__(self):
         pass
@@ -44,4 +45,24 @@ class RestAdapter(Adapter):
         tuples = [(datetime.fromtimestamp(j["date"] / 1000), #, timezone(timedelta(minutes=j["utcOffset"]))),
                    j["sgv"]) for j in response.json()]
         self.logger.info("queried {} tuples".format(len(tuples)))
+        return tuples
+
+class OfflineAdapter(Adapter):
+    @staticmethod
+    def roundup(x, thresh):
+        return int(math.ceil(x / thresh)) * thresh
+
+    def __init__(self):
+        super().__init__()
+        self.logger = logging.getLogger(self.__module__)
+
+    def query(self, t_start, t_end):
+        t0r = OfflineAdapter.roundup(t_start, 10*60)
+        t1r = OfflineAdapter.roundup(t_end, 10*60)
+
+        times = np.arange(t0r, t1r, 10*60)
+        glucose = 160 + np.sin(times*np.pi*2/(6*3600))*80# + np.random.rand(len(times))*20
+        datetimes = [datetime.fromtimestamp(t) for t in times]
+        tuples = list(zip(datetimes, glucose))
+        print(list(zip(datetimes, glucose)))
         return tuples
