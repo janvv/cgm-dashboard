@@ -8,9 +8,9 @@ Plotly Dash based dashboard overlaying your CGM data on your CGM percentile plot
 
 Still, many CGM users benefit from looking at their report, especially the Ambulatory Glucose Profile helps to quickly see at which time of the day your therapy needs attention.
 
-cgm-dashboard was developed to make seeing your data **simple and fun**. Instead of limiting yourself to today's data or the AGP in your report, it *combines* them both. It literally brings your glucose data in perspective. 
+cgm-dashboard was developed to make seeing your data **simple and fun**. Instead of limiting yourself to today's data or the AGP in your report, it *combines* them both. It brings your glucose data into perspective. On top of that, you can quickly take a glance on how you perform without downloading the report from your device manufacturer or opening an app. 
 
-cgm-dashboard overlays your today's cgm data with your historic percentile plot. This allows you to quickly foresee if you enter a problematic time of the day. You can think of it as using the percentile plot as a forecast based on your history.
+cgm-dashboard overlays your today's cgm data with your historic percentile plot. This allows you to quickly foresee if you enter a problematic time of the day. You can think of it as using the percentile plot as a forecast, based on your history.
 
 ## how to use it
 The webbased dashboard can be accessed from any browser making it the perfect candidate for a left-over tablet. Just put it where you see it, anywhere in your home. 

@@ -224,7 +224,7 @@ app.layout = html.Div(style={"height": "100vh", "width": "100vw", 'backgroundCol
         ]),
         html.Div(className="six columns", id="title")
     ]),
-    html.Div(children=[blank_graph(id='top_graph', height="70vh")]),
+    html.Div(children=[blank_graph(id='top_graph', height="90vh")]),
 
     html.Div(
         style={"height": "20vh"},
