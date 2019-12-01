@@ -122,7 +122,7 @@ def top_graph(n=14, show_today=True, show_grid=True, centered=False):
     ylim = 275
     start = 0
     end = 24
-    ticks = [0, 4, 8, 12, 16, 20]
+    ticks = np.array([0, 4, 8, 12, 16, 20])
     preview = 0
 
     if centered:
@@ -131,7 +131,10 @@ def top_graph(n=14, show_today=True, show_grid=True, centered=False):
         now_hour = now.hour + now.minute / 60
         start = (now_hour + preview) % 24
         end = start + 24
-        ticks = np.append(ticks, now.hour+now.minute/60)
+
+        #remove close ticks
+        ticks = ticks[~(np.abs(ticks-now_hour) <= 1.5)]
+        ticks = np.append(ticks, now_hour)
         ticks[ticks < start] += 24
 
     print("start={} end = {}".format(start, end))
@@ -163,10 +166,10 @@ def top_graph(n=14, show_today=True, show_grid=True, centered=False):
                 hours = df_last_day.hour.values
                 glucose = np.array(df_last_day[GLUCOSE_COLUMN].values, dtype=int)
                 strings = df_last_day[DATETIME_COLUMN].apply(lambda x: x.strftime("%H:%M")).values
-                annotations.append(dict(x=min(max(start+2, hours[-1]), end-2), y=260, xref="x", yref="y",
-                                        text="{:03d}".format(int(glucose[-1])), showarrow=True, arrowhead=7,
-                                        ax=0, ay=0, align = "center",
-                                        font=dict(size=64, color=colors["text"])))
+                #annotations.append(dict(x=min(max(start+2, hours[-1]), end-2), y=260, xref="x", yref="y",
+                #                        text='<s>{:03d}</s>'.format(int(glucose[-1])), showarrow=True, arrowhead=7,
+                #                        ax=0, ay=0, align = "center",
+                #                        font=dict(size=64, color=colors["text"])))
                 #annotations.append(dict(x=hours[-1]+3, y=260-5, xref="x", yref="y", ax=100,
                 #                        text="mg/dl", showarrow=False, align = "left", font=dict(size=24, color="#ffffff")))
 
@@ -201,7 +204,6 @@ def top_graph(n=14, show_today=True, show_grid=True, centered=False):
 
 
 def get_headline():
-
     latest = database.get_last_entry()
     if latest is not None:
         minutes = (datetime.now() - latest[DATETIME_COLUMN]).seconds/60
@@ -220,8 +222,8 @@ def get_headline():
 
 app.layout = html.Div(style={"height": "130vh", "width": "100vw",
                              'backgroundColor': colors['background'], 'color': colors['text']}, children=[
-    #html.Div(id="title", style={"height": "15vh", 'textAlign': 'right'}),
-    html.Div(children=[blank_graph(id='top_graph', height="100vh")]),
+    html.Div(id="title", style={"height": "15vh", 'textAlign': 'right'}),
+    html.Div(children=[blank_graph(id='top_graph', height="85vh")]),
     blank_graph(id="tir_bars", height="20vh"),
 
     html.Div(style={'display': 'inline-block', 'height':'10vh'}, children=[
@@ -245,7 +247,8 @@ app.layout = html.Div(style={"height": "130vh", "width": "100vw",
 
 
 @app.callback([Output("top_graph", "figure"),
-               Output("last_loaded_div", "children")],#Output('title', 'children')],
+               Output("last_loaded_div", "children"),
+               Output('title', 'children')],
               [Input('update_agp_interval', 'n_intervals'),
                Input("startup_interval", "n_intervals"),
                Input('checkboxes', 'value'),
@@ -257,7 +260,7 @@ def refresh_agp_graph_callback(n_interval_load, n_startup_interval, checkbox_val
                       show_today="show_today" in checkbox_values,
                       show_grid="show_grid" in checkbox_values,
                       centered="is_centered" in checkbox_values),
-            last_loaded]#get_headline()]
+            last_loaded, get_headline()]
 
 
 @app.callback([Output('tir_bars', 'figure')],
