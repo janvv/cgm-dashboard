@@ -207,15 +207,15 @@ def get_headline():
     latest = database.get_last_entry()
     if latest is not None:
         minutes = (datetime.now() - latest[DATETIME_COLUMN]).seconds/60
-        #t_div = html.Div("mg/dl ({} min ago)".format(int(minutes)), style={'marginLeft':8, 'marginRight':12, 'display': 'inline-block', "font-size": 24})
-        children = [html.Div("{:.0f}".format(latest[GLUCOSE_COLUMN]),
-                             style={'display': 'inline-block', "font-size": 64}),
-                    html.Div("mg/dl".format(latest[GLUCOSE_COLUMN]),
-                             style={'marginLeft': 8, 'marginRight': 16, 'display': 'inline-block', "font-size": 24})]
-        if minutes < 15:
-            return html.Div(children=children, style={'textAlign': 'right'})
-        else:
-            return html.Del(children=children, style={'textAlign': 'right'})
+        print(minutes)
+
+        container = html.Div if minutes < 15 else html.Del
+        color = colors["text"] if minutes < 15 else "#808080"
+        return html.Div(children=[container(" {:.0f} ".format(latest[GLUCOSE_COLUMN]),
+                                            style={'display': 'inline-block', "font-size": 64, 'color': color}),
+                                  html.Div("mg/dl".format(latest[GLUCOSE_COLUMN]),
+                                            style={'marginLeft': 8, 'marginRight': 16, 'display': 'inline-block', "font-size": 24, 'color': color})],
+                        style={'textAlign': 'right'})
     else:
         return html.Div("???")
 
