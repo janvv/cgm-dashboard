@@ -81,8 +81,7 @@ def fill_above(X, Ylow, Ytop, thresh_bottom, thresh_top):
 
 
 def agp_components(df, start=0):
-    stats = cgm.calculate_hourly_stats(df, datetime_column=DATETIME_COLUMN, glucose_column=GLUCOSE_COLUMN,
-                                       smoothed=False, interpolated=True)
+    stats = cgm.calculate_hourly_stats(df, datetime_column=DATETIME_COLUMN, glucose_column=GLUCOSE_COLUMN, interpolated=True)
 
     index_copy = stats.index.values
     index_copy[index_copy < start] += 24
@@ -118,8 +117,8 @@ def major_formatter(x):
     return d.strftime('%H:%M')
 
 
-def top_graph(n=14, show_today=True, show_grid=True, centered=False):
-    ylim = 275
+def top_graph(df, show_today=True, show_grid=True, centered=False):
+    ylim = 350
     start = 0
     end = 24
     ticks = np.array([0, 4, 8, 12, 16, 20])
@@ -132,16 +131,19 @@ def top_graph(n=14, show_today=True, show_grid=True, centered=False):
         start = (now_hour + preview) % 24
         end = start + 24
 
-        #remove close ticks
-        ticks = ticks[~(np.abs(ticks-now_hour) <= 1.5)]
-        ticks = np.append(ticks, now_hour)
+        #remove close grid lines
+
         ticks[ticks < start] += 24
+        ticks = ticks[~(np.abs(now_hour - ticks) <= 1.5)]
+        #ticks = ticks[~((now_hour - ticks) <= -22.5)]
+        ticks = np.append(ticks, now_hour if now_hour >= start else now_hour + 24)
+
+        print(ticks)
 
     print("start={} end = {}".format(start, end))
 
     graphs = []
     try:
-        df = database.get_entries(n)
         graphs = graphs + agp_components(df, start)
     except Exception as e:
         print("error creating AGP: {}".format(e))
@@ -162,25 +164,51 @@ def top_graph(n=14, show_today=True, show_grid=True, centered=False):
 
                 df_last_day = df_last_day.loc[df_last_day[DATETIME_COLUMN] > cut_off]
                 df_last_day.loc[df_last_day.hour < start, "hour"] = df_last_day[df_last_day.hour < start].hour + 24
-
                 hours = df_last_day.hour.values
-                glucose = np.array(df_last_day[GLUCOSE_COLUMN].values, dtype=int)
-                strings = df_last_day[DATETIME_COLUMN].apply(lambda x: x.strftime("%H:%M")).values
-                #annotations.append(dict(x=min(max(start+2, hours[-1]), end-2), y=260, xref="x", yref="y",
-                #                        text='<s>{:03d}</s>'.format(int(glucose[-1])), showarrow=True, arrowhead=7,
-                #                        ax=0, ay=0, align = "center",
-                #                        font=dict(size=64, color=colors["text"])))
-                #annotations.append(dict(x=hours[-1]+3, y=260-5, xref="x", yref="y", ax=100,
-                #                        text="mg/dl", showarrow=False, align = "left", font=dict(size=24, color="#ffffff")))
+                time_strings = df_last_day[DATETIME_COLUMN].apply(lambda x: x.strftime("%H:%M")).values
 
+                glucose = np.array(df_last_day[GLUCOSE_COLUMN].values, dtype=int)
+                glucose_smoothed = cgm.smooth_split(glucose, hours, order=6)
 
                 last_day_graph = [go.Scatter(x=hours, y=glucose,
+                                             marker=dict(size=1, color="#808080",
+                                                         line=dict(color="white", width=1)),
+                                             mode="markers", hoverinfo="none",
+                                             showlegend=False)]
+                graphs = graphs + last_day_graph
+
+
+
+                filtered_graph = [go.Scatter(x=hours[:-1], y=glucose_smoothed[:-1],
                                              marker=dict(size=7, color=colors["bright"],
                                                          line=dict(color="white", width=1)),
-                                             text=strings,
-                                             mode="markers", hoverinfo="y+text",
+                                             text=time_strings[:-1], mode="markers", hoverinfo="y+text",
                                              hovertemplate='%{y:3.0f} mg/dl <br> %{text}',
                                              showlegend=False)]
+                graphs = graphs + filtered_graph
+
+                if datetime.now() - df_last_day[DATETIME_COLUMN].iloc[-1] < timedelta(minutes=15):
+                    print(hours[-1],glucose_smoothed[-1],time_strings[-1])
+
+                    last_glucose_dot = [go.Scatter(x=[hours[-1]], y=[glucose_smoothed[-1]],
+                                                 marker=dict(size=15, color=colors["bright"],
+                                                             line=dict(color="white", width=3)),
+                                                 text=[time_strings[-1]],
+                                                 mode="markers", hoverinfo="y+text",
+                                                 hovertemplate='%{y:3.0f} mg/dl <br> %{text}',
+                                                 showlegend=False)]
+                    graphs = graphs + last_glucose_dot
+                #add annotation if glucose is up to date
+                #if datetime.now() - df_last_day[DATETIME_COLUMN].iloc[-1] < timedelta(minutes=15):
+                #    go.Scatter()
+                #    annotations.append(dict(x=min(max(start+2, hours[-1]), end-2), y=glucose[-1], xref="x", yref="y",
+                #                            text='{:03d}'.format(int(glucose[-1])), showarrow=True, arrowhead=0,
+                #                            ax=0, ay=-250, align = "center",
+                #                            font=dict(size=64, color=colors["text"]), arrowcolor=colors['text']))
+
+                else:
+                    print("latest cgm too old -> don't add annotation")
+
                 graphs = graphs + last_day_graph
         except Exception as e:
             print("Error while adding day scatter plot: {}".format(e))
@@ -203,11 +231,9 @@ def top_graph(n=14, show_today=True, show_grid=True, centered=False):
     }
 
 
-def get_headline():
-    latest = database.get_last_entry()
+def get_headline(latest):
     if latest is not None:
         minutes = (datetime.now() - latest[DATETIME_COLUMN]).seconds/60
-        print(minutes)
 
         container = html.Div if minutes < 15 else html.Del
         color = colors["text"] if minutes < 15 else "#808080"
@@ -220,11 +246,11 @@ def get_headline():
         return html.Div("???")
 
 
-app.layout = html.Div(style={"height": "130vh", "width": "100vw",
-                             'backgroundColor': colors['background'], 'color': colors['text']}, children=[
-    html.Div(id="title", style={"height": "15vh", 'textAlign': 'right'}),
-    html.Div(children=[blank_graph(id='top_graph', height="85vh")]),
-    blank_graph(id="tir_bars", height="20vh"),
+app.layout = html.Div(style={"height": "100vh", "width": "100vw", 'backgroundColor': colors['background'],
+                             'color': colors['text']}, children=[
+    html.Div(id="title", style={'textAlign': 'right','height': '15vh'}),
+
+    html.Div(children=[blank_graph(id='top_graph', height="75vh")]),
 
     html.Div(style={'display': 'inline-block', 'height':'10vh'}, children=[
         html.Div(id='last_loaded_div', children="Last Refresh: ???", style={'width': '200px', 'display': 'inline-block', 'text-align': 'center'}),
@@ -237,9 +263,9 @@ app.layout = html.Div(style={"height": "130vh", "width": "100vw",
                       style={'display': 'inline-block'}),
         html.Div(dcc.Slider(id="day_slider", min=1, max=5, step=1, value=2,
                             marks=dict(zip([1, 2, 3, 4, 5], ["7d", "14d", "30d", "90d", "365d"]))),
-                 style={"width": 200, "marginLeft": 20, 'display': 'inline-block'})
-    ]),
+                 style={"width": 200, "marginLeft": 20, 'display': 'inline-block'})]),
 
+    #blank_graph(id="tir_bars", height="20vh"),
     dcc.Interval(id='update_tir_interval', interval=30*60*1000),
     dcc.Interval(id='update_agp_interval', interval=1*60*1000),
     dcc.Interval(id='startup_interval', interval=1*1000, max_intervals=1)
@@ -256,13 +282,15 @@ app.layout = html.Div(style={"height": "130vh", "width": "100vw",
 def refresh_agp_graph_callback(n_interval_load, n_startup_interval, checkbox_values, slider_value):
     num_days = [7, 14, 30, 90, 365][slider_value-1]
     last_loaded = "last refresh {}".format(datetime.now().strftime("%H:%M:%S"))
-    return [top_graph(n=num_days,
+    df = database.get_entries(num_days, update=True)
+    latest = database.get_last_entry(update=False)
+    return [top_graph(df=df,
                       show_today="show_today" in checkbox_values,
                       show_grid="show_grid" in checkbox_values,
                       centered="is_centered" in checkbox_values),
-            last_loaded, get_headline()]
+            last_loaded, get_headline(latest)]
 
-
+"""
 @app.callback([Output('tir_bars', 'figure')],
               [Input('update_tir_interval', 'n_intervals'),
                Input('startup_interval', 'n_intervals')])
@@ -288,7 +316,7 @@ def refresh_tir_graph(n_intervals,n_startup_interval):
                                  showlegend=False,
 
                                  font={'color': colors['text']})}]
-
+"""
 
 
 if __name__ == '__main__':

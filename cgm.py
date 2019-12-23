@@ -21,32 +21,34 @@ def agg_weekly(df):
         return None
 
 
-def calculate_hourly_stats(df, datetime_column, glucose_column, smoothed=False, interpolated=True):
-
+def calculate_hourly_stats(df, datetime_column, glucose_column, interpolated=True):
     def percentile(n):
         def percentile_(x):
             return np.percentile(x, n)
+
         percentile_.__name__ = 'p_%s' % n
         return percentile_
 
-    df['hourD'] = df[datetime_column].apply(lambda x: x.hour)
-    stats = df.groupby('hourD').agg({glucose_column: [percentile(10), percentile(25), percentile(50),
-                                                      percentile(75), percentile(90)]})
+    # group by hour buckets
+    df["hour"] = df[datetime_column].apply(lambda x: x.hour + x.minute / 60 + x.second / 3600)
+    bins = pd.IntervalIndex.from_breaks(np.arange(-.5, 23.5 + 1, 1))
+    df["bin"] = pd.cut(df.hour.apply(lambda x: x - 24 if x > 23.5 else x), bins)
 
+    stats = df.groupby('bin').agg({glucose_column:
+                                       [percentile(10), percentile(25), percentile(50),
+                                        percentile(75), percentile(90)]})
 
-    # smooth using convolutional filter
-    if smoothed:
-        stats = stats.apply(lambda x: smooth(x.values), axis=0)
-
-    # copy first value to the end -> 24.00 equals 00:00
-    first_row = stats.loc[0]
+    stats = stats.reset_index()
+    stats = stats.drop("bin", axis=1)
+    first_row = stats.iloc[0]
     first_row.name = 24
     stats = stats.append(first_row)
 
-    # interpolate using splines
     if interpolated:
         stats = stats.apply(lambda x: interpolate(x), axis=0)
+
     return stats
+
 
 
 def smooth(x, order=1):
@@ -55,6 +57,14 @@ def smooth(x, order=1):
         x_new = np.convolve(x_new, np.array([1.0, 4.0, 1.0]) / 6.0, 'valid')
         x_new = np.append(np.append(x[0], x_new), x[-1])
     return x_new
+
+
+def smooth_split(x, hours, order):
+    #assert hours are sorted in ascending order
+    assert np.sum(np.diff(hours)<0) == 0
+    i_gaps_geq_5 = np.where(np.diff(hours) > 15/60)[0]
+    splits = np.split(x, i_gaps_geq_5+1)
+    return np.concatenate([smooth(split,order=order) for split in splits])
 
 
 def interpolate(series):
