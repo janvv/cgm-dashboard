@@ -116,8 +116,25 @@ def major_formatter(x):
         d = time(hour=np.mod(int(x), 24), minute=int(60*(x-int(x))))
     return d.strftime('%H:%M')
 
+def scatter_graph(df, start = 0, hover=True, mode='markers', size=7, color=None, edge=False):
+    df = df.copy()
+    df["hour"] = df[DATETIME_COLUMN].apply(lambda x: x.hour + x.minute / 60 + x.second / 3600)
+    df["glucose_smoothed"] = cgm.smooth_split(df[GLUCOSE_COLUMN].values, df[DATETIME_COLUMN].values, order=6)
+    df.loc[df.hour < start, "hour"] = df[df.hour < start].hour + 24
 
-def top_graph(df, show_today=True, show_grid=True, centered=False):
+    scatter = go.Scatter(x=df.hour,
+                         y=df.glucose_smoothed,
+                         text=df[DATETIME_COLUMN].apply(lambda x: x.strftime("%H:%M")).values[:-1],
+                         marker=dict(size=size,
+                                     color="#808080" if color is None else color,
+                                     line=dict(color="white", width=1) if edge else None),
+                         mode=mode,
+                         hoverinfo="y+text" if hover else 'none',
+                         hovertemplate='%{y:3.0f} mg/dl <br> %{text}' if hover else '',
+                         showlegend=False)
+    return scatter
+
+def top_graph(df, show_today=True, show_days=True, show_grid=True, centered=False):
     ylim = 350
     start = 0
     end = 24
@@ -134,84 +151,51 @@ def top_graph(df, show_today=True, show_grid=True, centered=False):
         #remove close grid lines
 
         ticks[ticks < start] += 24
-        ticks = ticks[~(np.abs(now_hour - ticks) <= 1.5)]
-        #ticks = ticks[~((now_hour - ticks) <= -22.5)]
-        ticks = np.append(ticks, now_hour if now_hour >= start else now_hour + 24)
+        now_tick = now_hour if now_hour >= start else now_hour + 24
 
+        ticks = ticks[~(np.abs(now_tick - ticks) <= 1.5)]
+        ticks = np.append(ticks,now_tick)
         print(ticks)
-
     print("start={} end = {}".format(start, end))
 
+
     graphs = []
+    annotations = []
+
+    # get previous days
+    day_groups = df.groupby(df[DATETIME_COLUMN].apply(lambda x: x.date()))
+    today_date = datetime.today().date()
+    day_dates = day_groups.keys.unique()
+    previous_dates = [date for date in day_dates if date != today_date]
+    today_frame = day_groups.get_group(today_date)
+
+    #draw AGP
     try:
         graphs = graphs + agp_components(df, start)
     except Exception as e:
         print("error creating AGP: {}".format(e))
 
+    #draw previous day scatters
+    if show_days:
+        for date in previous_dates:
+            subframe = day_groups.get_group(date)
+            scatter = scatter_graph(subframe, start, hover=False, size=4)
+            graphs = graphs + [scatter]
 
-    #get last day cgm data
-    annotations = []
-    if show_today:
-        try:
-            df_last_day = database.get_entries(1)
-            df_last_day["hour"] = df_last_day[DATETIME_COLUMN].apply(lambda x: x.hour + x.minute / 60 + x.second / 3600)
+    if show_today and today_frame is not None:
+        # prevent warping
+        today_start = datetime(today_date.year, today_date.month, today_date.day)
+        cut_off = datetime.now() - timedelta(hours=24.0 - preview) if centered else today_start
+        df_recent = df.loc[df[DATETIME_COLUMN] > cut_off]
 
-            if df_last_day is not None:
-                if centered:
-                    cut_off = datetime.now() - timedelta(hours=24.0 - preview)#prevent warping
-                else:
-                    cut_off = datetime.now().date()#beginning of today
+        graphs = graphs + [scatter_graph(df_recent, start, hover=True, size=7,  edge=True, color=colors["bright"])]
 
-                df_last_day = df_last_day.loc[df_last_day[DATETIME_COLUMN] > cut_off]
-                df_last_day.loc[df_last_day.hour < start, "hour"] = df_last_day[df_last_day.hour < start].hour + 24
-                hours = df_last_day.hour.values
-                time_strings = df_last_day[DATETIME_COLUMN].apply(lambda x: x.strftime("%H:%M")).values
+        #make last value bigger if up to date
+        if (datetime.now() - df[DATETIME_COLUMN].iloc[-1]) < timedelta(minutes=15):
+            glucose = df[GLUCOSE_COLUMN].iloc[-1]
+            color = colors["signal"] if (glucose < 54) else (colors["second"] if (glucose < 220)  else colors["third"])
+            graphs = graphs + [scatter_graph(df.iloc[[-1]], start, hover=True, size=20,  edge=True, color=color)]
 
-                glucose = np.array(df_last_day[GLUCOSE_COLUMN].values, dtype=int)
-                glucose_smoothed = cgm.smooth_split(glucose, hours, order=6)
-
-                last_day_graph = [go.Scatter(x=hours, y=glucose,
-                                             marker=dict(size=1, color="#808080",
-                                                         line=dict(color="white", width=1)),
-                                             mode="markers", hoverinfo="none",
-                                             showlegend=False)]
-                graphs = graphs + last_day_graph
-
-
-
-                filtered_graph = [go.Scatter(x=hours[:-1], y=glucose_smoothed[:-1],
-                                             marker=dict(size=7, color=colors["bright"],
-                                                         line=dict(color="white", width=1)),
-                                             text=time_strings[:-1], mode="markers", hoverinfo="y+text",
-                                             hovertemplate='%{y:3.0f} mg/dl <br> %{text}',
-                                             showlegend=False)]
-                graphs = graphs + filtered_graph
-
-                if datetime.now() - df_last_day[DATETIME_COLUMN].iloc[-1] < timedelta(minutes=15):
-                    print(hours[-1],glucose_smoothed[-1],time_strings[-1])
-
-                    last_glucose_dot = [go.Scatter(x=[hours[-1]], y=[glucose_smoothed[-1]],
-                                                 marker=dict(size=15, color=colors["bright"],
-                                                             line=dict(color="white", width=3)),
-                                                 text=[time_strings[-1]],
-                                                 mode="markers", hoverinfo="y+text",
-                                                 hovertemplate='%{y:3.0f} mg/dl <br> %{text}',
-                                                 showlegend=False)]
-                    graphs = graphs + last_glucose_dot
-                #add annotation if glucose is up to date
-                #if datetime.now() - df_last_day[DATETIME_COLUMN].iloc[-1] < timedelta(minutes=15):
-                #    go.Scatter()
-                #    annotations.append(dict(x=min(max(start+2, hours[-1]), end-2), y=glucose[-1], xref="x", yref="y",
-                #                            text='{:03d}'.format(int(glucose[-1])), showarrow=True, arrowhead=0,
-                #                            ax=0, ay=-250, align = "center",
-                #                            font=dict(size=64, color=colors["text"]), arrowcolor=colors['text']))
-
-                else:
-                    print("latest cgm too old -> don't add annotation")
-
-                graphs = graphs + last_day_graph
-        except Exception as e:
-            print("Error while adding day scatter plot: {}".format(e))
     return {
         'data': graphs,
         'layout': go.Layout(
@@ -256,6 +240,7 @@ app.layout = html.Div(style={"height": "100vh", "width": "100vw", 'backgroundCol
         html.Div(id='last_loaded_div', children="Last Refresh: ???", style={'width': '200px', 'display': 'inline-block', 'text-align': 'center'}),
         dcc.Checklist(id="checkboxes",
                       options=[{'label': 'Today', 'value': 'show_today'},
+                               {'label': 'Days', 'value': 'show_days'},
                                {'label': 'Center', 'value': 'is_centered'},
                                {'label': 'Grid', 'value': 'show_grid'}],
                       value=['show_today', 'is_centered', 'show_grid'],
@@ -286,6 +271,7 @@ def refresh_agp_graph_callback(n_interval_load, n_startup_interval, checkbox_val
     latest = database.get_last_entry(update=False)
     return [top_graph(df=df,
                       show_today="show_today" in checkbox_values,
+                      show_days="show_days" in checkbox_values,
                       show_grid="show_grid" in checkbox_values,
                       centered="is_centered" in checkbox_values),
             last_loaded, get_headline(latest)]

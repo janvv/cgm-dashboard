@@ -52,6 +52,9 @@ def calculate_hourly_stats(df, datetime_column, glucose_column, interpolated=Tru
 
 
 def smooth(x, order=1):
+    if len(x) < 3:
+        return x
+
     x_new = x
     for i in range(0, order):
         x_new = np.convolve(x_new, np.array([1.0, 4.0, 1.0]) / 6.0, 'valid')
@@ -59,12 +62,11 @@ def smooth(x, order=1):
     return x_new
 
 
-def smooth_split(x, hours, order):
-    #assert hours are sorted in ascending order
-    assert np.sum(np.diff(hours)<0) == 0
-    i_gaps_geq_5 = np.where(np.diff(hours) > 15/60)[0]
+def smooth_split(x, time, order):
+    minutes = 15
+    i_gaps_geq_5 = np.where(np.diff(time) > np.timedelta64(minutes*60*1000000000))[0]
     splits = np.split(x, i_gaps_geq_5+1)
-    return np.concatenate([smooth(split,order=order) for split in splits])
+    return np.concatenate([smooth(split, order=order) for split in splits])
 
 
 def interpolate(series):
