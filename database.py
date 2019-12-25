@@ -10,6 +10,7 @@ class DataBase:
     def __init__(self, adapter):
 
         self.logger = logging.getLogger(self.__module__)
+        self.logger.setLevel(logging.ERROR)
         self.logger.info("Connecting to mongo db ...")
         self.earlierst_query_time = -1
         self.latest_query_time = -1

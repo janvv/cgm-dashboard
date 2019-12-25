@@ -18,6 +18,7 @@ external_stylesheets = ['https://codepen.io/chriddyp/pen/bWLwgP.css',
 app = dash.Dash(__name__, external_stylesheets=external_stylesheets)
 
 logger = logging.getLogger(__name__)
+logger.setLevel(logging.ERROR)
 
 #setup database and backend adapter
 config = ConfigParser()
@@ -127,7 +128,7 @@ def scatter_graph(df, start = 0, hover=True, mode='markers', size=7, color=None,
                          text=df[DATETIME_COLUMN].apply(lambda x: x.strftime("%H:%M")).values[:-1],
                          marker=dict(size=size,
                                      color="#808080" if color is None else color,
-                                     line=dict(color="white", width=1) if edge else None),
+                                     line=dict(color="white", width=3) if edge else None),
                          mode=mode,
                          hoverinfo="y+text" if hover else 'none',
                          hovertemplate='%{y:3.0f} mg/dl <br> %{text}' if hover else '',
@@ -155,8 +156,6 @@ def top_graph(df, show_today=True, show_days=True, show_grid=True, centered=Fals
 
         ticks = ticks[~(np.abs(now_tick - ticks) <= 1.5)]
         ticks = np.append(ticks,now_tick)
-        print(ticks)
-    print("start={} end = {}".format(start, end))
 
 
     graphs = []
@@ -173,7 +172,7 @@ def top_graph(df, show_today=True, show_days=True, show_grid=True, centered=Fals
     try:
         graphs = graphs + agp_components(df, start)
     except Exception as e:
-        print("error creating AGP: {}".format(e))
+        logger.error("error creating AGP: {}".format(e))
 
     #draw previous day scatters
     if show_days:
@@ -308,6 +307,6 @@ def refresh_tir_graph(n_intervals,n_startup_interval):
 if __name__ == '__main__':
     debug = False
     if "-debug" in sys.argv:
-        print("starting in debug")
+        logger.info("starting in debug")
         debug = True
     app.run_server(debug=debug, port=8080, host='0.0.0.0')

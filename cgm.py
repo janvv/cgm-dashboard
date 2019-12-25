@@ -64,6 +64,9 @@ def smooth(x, order=1):
 
 def smooth_split(x, time, order):
     minutes = 15
+    #assert datetimes are sorted in ascending order
+    assert np.sum(np.diff(time)<np.timedelta64(0)) == 0
+
     i_gaps_geq_5 = np.where(np.diff(time) > np.timedelta64(minutes*60*1000000000))[0]
     splits = np.split(x, i_gaps_geq_5+1)
     return np.concatenate([smooth(split, order=order) for split in splits])
