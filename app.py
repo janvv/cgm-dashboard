@@ -136,6 +136,7 @@ def scatter_graph(df, start = 0, hover=True, mode='markers', size=7, color=None,
     return scatter
 
 def top_graph(df, show_today=True, show_days=True, show_grid=True, centered=False):
+
     ylim = 350
     start = 0
     end = 24
@@ -161,18 +162,17 @@ def top_graph(df, show_today=True, show_days=True, show_grid=True, centered=Fals
     graphs = []
     annotations = []
 
-    # get previous days
-    day_groups = df.groupby(df[DATETIME_COLUMN].apply(lambda x: x.date()))
-    today_date = datetime.today().date()
-    day_dates = day_groups.keys.unique()
-    previous_dates = [date for date in day_dates if date != today_date]
-    today_frame = day_groups.get_group(today_date)
-
     #draw AGP
     try:
         graphs = graphs + agp_components(df, start)
     except Exception as e:
         logger.error("error creating AGP: {}".format(e))
+
+    # get previous days
+    day_groups = df.groupby(df[DATETIME_COLUMN].apply(lambda x: x.date()))
+    today_date = datetime.today().date()
+    day_dates = day_groups.keys.unique()
+    previous_dates = [date for date in day_dates if date != today_date]
 
     #draw previous day scatters
     if show_days:
@@ -181,19 +181,20 @@ def top_graph(df, show_today=True, show_days=True, show_grid=True, centered=Fals
             scatter = scatter_graph(subframe, start, hover=False, size=4)
             graphs = graphs + [scatter]
 
-    if show_today and today_frame is not None:
+    if show_today:
         # prevent warping
         today_start = datetime(today_date.year, today_date.month, today_date.day)
         cut_off = datetime.now() - timedelta(hours=24.0 - preview) if centered else today_start
         df_recent = df.loc[df[DATETIME_COLUMN] > cut_off]
 
-        graphs = graphs + [scatter_graph(df_recent, start, hover=True, size=7,  edge=True, color=colors["bright"])]
-
-        #make last value bigger if up to date
-        if (datetime.now() - df[DATETIME_COLUMN].iloc[-1]) < timedelta(minutes=15):
-            glucose = df[GLUCOSE_COLUMN].iloc[-1]
-            color = colors["signal"] if (glucose < 54) else (colors["second"] if (glucose < 220)  else colors["third"])
-            graphs = graphs + [scatter_graph(df.iloc[[-1]], start, hover=True, size=20,  edge=True, color=color)]
+        #if values in current view exist
+        if len(df_recent) > 0:
+            graphs = graphs + [scatter_graph(df_recent, start, hover=True, size=7,  edge=True, color=colors["bright"])]
+            #make last value bigger if up to date
+            if (datetime.now() - df[DATETIME_COLUMN].iloc[-1]) < timedelta(minutes=15):
+                glucose = df[GLUCOSE_COLUMN].iloc[-1]
+                color = colors["signal"] if (glucose < 54) else (colors["second"] if (glucose < 220)  else colors["third"])
+                graphs = graphs + [scatter_graph(df.iloc[[-1]], start, hover=True, size=20,  edge=True, color=color)]
 
     return {
         'data': graphs,
