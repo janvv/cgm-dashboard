@@ -32,19 +32,22 @@ class MongoUploader():
         t_min = df[df_date_col].min().timestamp() * 1000
         collection = self.db["entries" if not perform_test else "test_entries"]
 
+        #remove old entries
         print(collection.count()," currently in table")
-        f = collection.find({"timestamp": {"$lt": t_max, "$gt": t_min}})
+
+        f = collection.find({"date": {"$lt": t_max, "$gt": t_min}})
         print(f.count()," to be removed")
-        collection.remove({"timestamp": {"$lt": t_max, "$gt": t_min}})
+
+        collection.remove({"date": {"$lt": t_max, "$gt": t_min}})
         print(collection.count()," after remove")
 
         #convert to mongo nightscout format
         temp = df.copy()
         temp = temp[[df_date_col, df_glucose_col]]
         temp = temp.rename(columns={df_glucose_col: "sgv", df_date_col: "date"})
+        temp["date"] = temp["date"].apply(lambda x: x.timestamp() * 1000)
         print(temp)
-        temp["timestamp"] = temp["date"].apply(lambda x: x.timestamp() * 1000)
-        temp["dateString"] = temp["date"].apply(lambda x: x.strftime("%Y-%m-%dT%H:%M:%S"))
+        #temp["dateString"] = temp["date"].apply(lambda x: x.strftime("%Y-%m-%dT%H:%M:%S"))
         records = temp.to_dict('records')
 
         print(len(records)," to be added")
