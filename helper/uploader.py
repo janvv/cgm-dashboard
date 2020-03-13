@@ -46,8 +46,7 @@ class MongoUploader():
         temp = temp[[df_date_col, df_glucose_col]]
         temp = temp.rename(columns={df_glucose_col: "sgv", df_date_col: "date"})
         temp["date"] = temp["date"].apply(lambda x: x.timestamp() * 1000)
-        print(temp)
-        #temp["dateString"] = temp["date"].apply(lambda x: x.strftime("%Y-%m-%dT%H:%M:%S"))
+        temp["dateString"] = temp["date"].apply(lambda x: x.strftime("%Y-%m-%dT%H:%M:%S"))
         records = temp.to_dict('records')
 
         print(len(records)," to be added")
