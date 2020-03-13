@@ -4,6 +4,7 @@ from datetime import datetime
 from pymongo import MongoClient, DESCENDING
 import numpy as np
 import math
+import logging
 class Adapter:
     def __init__(self):
         pass
@@ -18,11 +19,13 @@ class MongoAdapter(Adapter):
         url = 'mongodb://{}:{}@{}:{}/{}'.format(params["user"], params["password"], params["host"], params["port"], params["database"])
         self.client = MongoClient(url, retryWrites=False)
         self.db = self.client[params["database"]]
+        self.logger = logging.getLogger(self.__module__)
+        self.logger.setLevel(logging.ERROR)
 
     def query(self, t_start, t_end):
         # query missing data
         entries = self.db['entries']
-        print("QUERYING    : {} - {}".format(datetime.fromtimestamp(t_start), datetime.fromtimestamp(t_end)))
+        self.logger.info("QUERYING    : {} - {}".format(datetime.fromtimestamp(t_start), datetime.fromtimestamp(t_end)))
         results = entries.find({"sgv": {"$gt": 0}, "date": {"$gt": t_start * 1000, "$lt": t_end * 1000}},
                                ["sgv", "date"], sort=[("date", DESCENDING)])
         tuples = [(datetime.fromtimestamp(r["date"] / 1000), r["sgv"]) for r in results]
@@ -64,5 +67,4 @@ class OfflineAdapter(Adapter):
         glucose = 160 + np.sin(times*np.pi*2/(6*3600))*80# + np.random.rand(len(times))*20
         datetimes = [datetime.fromtimestamp(t) for t in times]
         tuples = list(zip(datetimes, glucose))
-        print(list(zip(datetimes, glucose)))
         return tuples

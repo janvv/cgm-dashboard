@@ -10,6 +10,7 @@ class DataBase:
     def __init__(self, adapter):
 
         self.logger = logging.getLogger(self.__module__)
+        self.logger.setLevel(logging.ERROR)
         self.logger.info("Connecting to mongo db ...")
         self.earlierst_query_time = -1
         self.latest_query_time = -1
@@ -87,7 +88,7 @@ class DataBase:
 
         sub_frame = self.df.loc[self.df[DATETIME_COLUMN] > start_datetime].sort_values(DATETIME_COLUMN)
         if len(sub_frame) > 0:
-            return sub_frame
+            return sub_frame.copy()
         else:
             return None
 
