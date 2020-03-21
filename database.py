@@ -52,17 +52,16 @@ class DataBase:
                 self.logger.info("queried {} new entries".format(len(tuples)))
 
                 '#Right now, the datetime objects are not carrying timezone information'
-                'the times are therefore always in UTC'
-                'Any sort of manipulation (getting the hour) automatically is converted into local timezone'
-                'Need to change to timezone aware objects to avoid inconsistencies'
-                'i.e. local time of day will be different depending on timezone the data is processed in'
                 temp_df = pd.DataFrame(data=tuples, columns=[DATETIME_COLUMN, GLUCOSE_COLUMN])
                 self.df = self.df.append(temp_df, sort=False, ignore_index=True).drop_duplicates()
 
-                '#ATM  we can not use the last item from the pandas dataframe because it '
-                'gives a different timestamp, thus we are using the tuples directly'
+                'make sure to use .to_pydatetime() to calculate timestamp'
+                'calling .timestamp() within pandas directly will wrongly give a wront timestamp' \
+                'it wrongly uses the local time of the object as utc time' \
+                'example: datetime object (10:00 local time (+1h)), pandas will give a timestamp +3600 seconds later ' \
+                'which would be 10:00 in utc and 11:00 in local time'
                 t, g = zip(*tuples)
-                datetime_latest_queried_item = max(t).timestamp()
+                datetime_latest_queried_item = temp_df[DATETIME_COLUMN].max().to_pydatetime().timestamp() #utc
 
 
         except Exception as e:
