@@ -22,11 +22,11 @@ class MongoAdapter(Adapter):
         self.logger = logging.getLogger(self.__module__)
         self.logger.setLevel(logging.ERROR)
 
-    def query(self, t_start, t_end):
+    def query(self, t_start, t_end, collection="entries"):
         # query missing data
-        entries = self.db['entries']
+        entries = self.db[collection]
         self.logger.info("QUERYING    : {} - {}".format(datetime.fromtimestamp(t_start), datetime.fromtimestamp(t_end)))
-        results = entries.find({"sgv": {"$gt": 0}, "date": {"$gt": t_start * 1000, "$lt": t_end * 1000}},
+        results = entries.find({"sgv": {"$gt": 0}, "date": {"$gte": t_start * 1000, "$lte": t_end * 1000}},
                                ["sgv", "date"], sort=[("date", DESCENDING)])
         tuples = [(datetime.fromtimestamp(r["date"] / 1000), r["sgv"]) for r in results]
         return tuples
