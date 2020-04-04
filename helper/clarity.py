@@ -1,5 +1,8 @@
 import pandas as pd
 from datetime import datetime, timedelta
+import os
+import glob
+from matplotlib import pyplot as plt
 
 def convert(x, low_description='Niedrig'):
     try:
@@ -53,3 +56,38 @@ def load_clarity_csv(pathname):
     #df = df.rename(columns={glucose_col: "sgv", date_col: "date"})
     
     return df
+
+def load_clarity_csvs_from(path_names, visualize=False):
+    dfs = []
+    for pathname in path_names:
+        temp = load_clarity_csv(pathname)
+        dfs.append(temp)
+
+    if visualize:
+        plt.figure(figsize=(15, 4))
+        plt.title("start/end of cgm data in csv files")
+        for temp in dfs:
+            print(temp.datetime.min(), temp.datetime.max())
+            plt.plot([temp.datetime.min(), temp.datetime.max()], [1, 1], linewidth=3, alpha=0.3)
+
+    df = pd.concat(dfs)
+    df = df.drop_duplicates()
+    return df
+
+
+
+def load_clarity_csvs_in(root_path,visualize=False):
+    extension = 'csv'
+    os.chdir(root_path)
+    results = glob.glob('*.{}'.format(extension))
+    print(results)
+
+    if root_path[-1] != "/":
+        root_path = root_path+"/"
+
+    path_names = [root_path + result for result in results]
+
+    print(path_names)
+
+    return load_clarity_csvs_from(path_names, visualize)
+
