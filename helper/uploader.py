@@ -6,6 +6,15 @@ import requests
 from datetime import datetime
 
 
+def convert_glucose_to_nightscout_format(df, df_glucose_col, df_date_col):
+    # convert to mongo nightscout format
+    temp = df.copy()
+    temp = temp[[df_date_col, df_glucose_col]]
+    temp = temp.rename(columns={df_glucose_col: "sgv", df_date_col: "date"})
+    temp["date"] = temp["date"].apply(lambda x: x.to_pydatetime().timestamp() * 1000)
+    records = temp.to_dict('records')
+    return records
+
 class MongoUploader():
     def __init__(self, params):
         super().__init__()
@@ -25,29 +34,28 @@ class MongoUploader():
         tables = self.db.list_collection_names(include_system_collections=False)
         print("TABLES:\n", tables)
 
-
     def upload_glucose(self, df, df_glucose_col, df_date_col, perform_test = False):
         #remove old entries in that time range
-        t_max = df[df_date_col].max().timestamp() * 1000
-        t_min = df[df_date_col].min().timestamp() * 1000
+        t_max = df[df_date_col].max().to_pydatetime().timestamp() * 1000
+        t_min = df[df_date_col].min().to_pydatetime().timestamp() * 1000
+        print(t_min,t_max)
+        
         collection = self.db["entries" if not perform_test else "test_entries"]
-
+        
+        min_ = collection.find_one(sort=[("date",1)])["date"]
+        max_ = collection.find_one(sort=[("date",-1)])["date"]
+        print(min_,max_)
+        
         #remove old entries
         print(collection.count()," currently in table")
 
-        f = collection.find({"date": {"$lt": t_max, "$gt": t_min}})
+        f = collection.find({"date": {"$lte": t_max, "$gte": t_min}})
         print(f.count()," to be removed")
 
-        collection.remove({"date": {"$lt": t_max, "$gt": t_min}})
+        collection.remove({"date": {"$lte": t_max, "$gte": t_min}})
         print(collection.count()," after remove")
 
-        #convert to mongo nightscout format
-        temp = df.copy()
-        temp = temp[[df_date_col, df_glucose_col]]
-        temp = temp.rename(columns={df_glucose_col: "sgv", df_date_col: "date"})
-        temp["date"] = temp["date"].apply(lambda x: x.timestamp() * 1000)
-        temp["dateString"] = temp["date"].apply(lambda x: x.strftime("%Y-%m-%dT%H:%M:%S"))
-        records = temp.to_dict('records')
+        records = convert_glucose_to_nightscout_format(df,df_glucose_col ,df_date_col)
 
         print(len(records)," to be added")
         #insert new values
