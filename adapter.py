@@ -5,6 +5,8 @@ from pymongo import MongoClient, DESCENDING
 import numpy as np
 import math
 import logging
+
+
 class Adapter:
     logger = logging.getLogger(__name__)
     def __init__(self):
@@ -22,12 +24,16 @@ class Adapter:
 class MongoAdapter(Adapter):
     def __init__(self, params):
         super().__init__()
-        url = 'mongodb://{}:{}@{}:{}/{}'.format(params["user"], params["password"], params["host"], params["port"], params["database"])
-        self.client = MongoClient(url, retryWrites=False)
-        self.db = self.client[params["database"]]
-        self.logger = logging.getLogger(self.__module__)
-        self.logger.setLevel(logging.ERROR)
-        self.collection = params["collection"]
+        try:
+            url = 'mongodb://{}:{}@{}:{}/{}'.format(params["user"], params["password"], params["host"], params["port"], params["database"])
+            self.client = MongoClient(url, retryWrites=False)
+            self.db = self.client[params["database"]]
+            self.logger = logging.getLogger(self.__module__)
+            self.logger.setLevel(logging.ERROR)
+            self.collection = params["collection"]
+        except Exception as e:
+            self.logger.exception("exception while creating adapter, exiting...")
+            exit()
 
     def query(self, t_start, t_end):
         self.logger.info("querying entries between {} to {}".format(t_start, t_end))
@@ -51,7 +57,9 @@ class MongoAdapterSRV(MongoAdapter):
             self.client = MongoClient(url)
             self.db = self.client[params["database"]]
         except Exception as e:
-            self.logger.exception("this didn't work")
+            self.logger.exception("exception while creating adapter, exiting...")
+            exit()
+
 
 
 class RestAdapter(Adapter):
