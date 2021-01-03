@@ -6,12 +6,18 @@ import numpy as np
 import math
 import logging
 class Adapter:
+    logger = logging.getLogger(__name__)
     def __init__(self):
         pass
 
     def query(self, t_start, t_end):
-        return []
+        """
 
+        :param t_start: posix timestamp
+        :param t_end:  posix timestamp
+        :return:
+        """
+        return []
 
 class MongoAdapter(Adapter):
     def __init__(self, params):
@@ -21,15 +27,31 @@ class MongoAdapter(Adapter):
         self.db = self.client[params["database"]]
         self.logger = logging.getLogger(self.__module__)
         self.logger.setLevel(logging.ERROR)
+        self.collection = params["collection"]
 
-    def query(self, t_start, t_end, collection="entries"):
+    def query(self, t_start, t_end):
+        self.logger.info("querying entries between {} to {}".format(t_start, t_end))
+
         # query missing data
-        entries = self.db[collection]
+        entries = self.db[self.collection]
+        print(entries)
         self.logger.info("QUERYING    : {} - {}".format(datetime.fromtimestamp(t_start), datetime.fromtimestamp(t_end)))
         results = entries.find({"sgv": {"$gt": 0}, "date": {"$gte": t_start * 1000, "$lte": t_end * 1000}},
                                ["sgv", "date"], sort=[("date", DESCENDING)])
         tuples = [(datetime.fromtimestamp(r["date"] / 1000), r["sgv"]) for r in results]
         return tuples
+        
+class MongoAdapterSRV(MongoAdapter):
+    def __init__(self, params):
+        self.logger = logging.getLogger(__name__)
+        self.logger.setLevel(logging.ERROR)
+        self.collection = params["collection"]
+        try:
+            url = "mongodb+srv://{user}:{password}@{cluster_url}/{database}?retryWrites=true&w=majority".format(**params)
+            self.client = MongoClient(url)
+            self.db = self.client[params["database"]]
+        except Exception as e:
+            self.logger.exception("this didn't work")
 
 
 class RestAdapter(Adapter):
@@ -68,3 +90,4 @@ class OfflineAdapter(Adapter):
         datetimes = [datetime.fromtimestamp(t) for t in times]
         tuples = list(zip(datetimes, glucose))
         return tuples
+

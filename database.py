@@ -9,30 +9,26 @@ GLUCOSE_COLUMN = "glucose"
 class DataBase:
     def __init__(self, adapter):
 
-        self.logger = logging.getLogger(self.__module__)
-        self.logger.setLevel(logging.ERROR)
+        self.logger = logging.getLogger(__name__)
         self.logger.info("Connecting to mongo db ...")
         self.earlierst_query_time = -1
         self.latest_query_time = -1
         self.df = pd.DataFrame(columns=[DATETIME_COLUMN, GLUCOSE_COLUMN])
         self.adapter = adapter
 
-    def update_entries(self, limit_days=0):
+    def update_entries(self, start_datetime=None):
         """
         :param limit_days: int
             Number of days into the past to query cgm data for
         :return: List of tuples (timestamp (seconds), glucose value) or None if error occured
         """
-        if limit_days < 0:
-            raise AttributeError("num_days {} has to be positive")
-
         # identify existing data
         now = datetime.now()
         t_end = now.timestamp()
-        t_start = 0 if limit_days == 0 else (now - timedelta(days=limit_days)).timestamp()
+        t_start = 0 if start_datetime is None else start_datetime.timestamp()
         datetime_latest_queried_item = self.latest_query_time
 
-        fmt = "%Y-%m-%d %H:%i:%s"
+        fmt = "%Y-%m-%d %H:%M:%S"
         self.logger.info("updating: {} - {}, existing: {} - {}".format(
             datetime.fromtimestamp(t_start).strftime(fmt),
             datetime.fromtimestamp(t_end).strftime(fmt),
@@ -62,6 +58,8 @@ class DataBase:
                 'which would be 10:00 in utc and 11:00 in local time'
                 t, g = zip(*tuples)
                 datetime_latest_queried_item = temp_df[DATETIME_COLUMN].max().to_pydatetime().timestamp() #utc
+            else:
+                self.logger.info("didn't find any new entries")
 
 
         except Exception as e:
@@ -76,12 +74,11 @@ class DataBase:
             self.latest_query_time = datetime_latest_queried_item
             return True
 
-    def get_entries(self, n_days=14, update=True):
-        start_datetime = (datetime.now()-timedelta(days=n_days))
+    def get_entries(self, start_datetime, update=True):
 
         '#check if we need to update data'
         if update and (((datetime.now().timestamp()-self.latest_query_time) > 1*60) or (start_datetime.timestamp() < self.earlierst_query_time)):
-            success = self.update_entries(n_days)
+            success = self.update_entries(start_datetime)
             if not success:
                 return None
 
@@ -92,14 +89,16 @@ class DataBase:
             return None
 
     def get_last_entry(self, update=False):
-        df = self.get_entries(1, update=update)
-        if df is not None:
-            return df.loc[df[DATETIME_COLUMN].idxmax()]
-        else:
-            return None
+        self.update_entries(datetime.fromtimestamp(self.latest_query_time))
+        return self.df.loc[self.df[DATETIME_COLUMN].idxmax()]
 
     def get_current_day_entries(self, update=False):
-        sub_frame = self.get_entries(1, update=update)
+        date_today = datetime.now().date()
+        datetime_start_of_today = datetime(year=date_today.year,
+                                  month=date_today.month,
+                                  day=date_today.day)
+
+        sub_frame = self.get_entries(datetime_start_of_today, update=update)
         if sub_frame is not None:
             to_date = datetime.now().date()
             groups = sub_frame.groupby(sub_frame[DATETIME_COLUMN].apply(lambda x: x.date()))
