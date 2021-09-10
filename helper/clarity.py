@@ -78,16 +78,15 @@ def load_clarity_csvs_from(path_names, visualize=False):
 
 def load_clarity_csvs_in(root_path,visualize=False):
     extension = 'csv'
+    owd = os.getcwd()
+    print(owd)
     os.chdir(root_path)
+
     results = glob.glob('*.{}'.format(extension))
     print(results)
 
-    if root_path[-1] != "/":
-        root_path = root_path+"/"
-
-    path_names = [root_path + result for result in results]
-
+    path_names = [os.path.abspath(x) for x in results]
     print(path_names)
-
+    os.chdir(owd)
     return load_clarity_csvs_from(path_names, visualize)
 

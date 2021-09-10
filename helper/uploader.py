@@ -16,17 +16,21 @@ def convert_glucose_to_nightscout_format(df, df_glucose_col, df_date_col):
     return records
 
 class MongoUploader():
-    def __init__(self, params):
+    def __init__(self, client, db_name):
         super().__init__()
-        url = 'mongodb://{}:{}@{}:{}/{}'.format(params["user"],
+
+        """url = 'mongodb://{}:{}@{}:{}/{}'.format(params["user"],
                                                 params["password"],
                                                 params["host"],
                                                 params["port"],
                                                 params["database"])
+        """
         glucose_col = "sgv"
         date_col = "date"
-        self.client = MongoClient(url, retryWrites=False)
-        self.db = self.client[params["database"]]
+        #self.client = MongoClient(url, retryWrites=False)
+        #self.db = self.client[params["database"]]
+        self.client = client
+        self.db = self.client[db_name]
         self.logger = logging.getLogger(self.__module__)
         self.logger.setLevel(logging.ERROR)
 
@@ -41,23 +45,24 @@ class MongoUploader():
         print(t_min,t_max)
         
         collection = self.db["entries" if not perform_test else "test_entries"]
-        
-        min_ = collection.find_one(sort=[("date",1)])["date"]
-        max_ = collection.find_one(sort=[("date",-1)])["date"]
-        print(min_,max_)
-        
-        #remove old entries
-        print(collection.count()," currently in table")
 
-        f = collection.find({"date": {"$lte": t_max, "$gte": t_min}})
-        print(f.count()," to be removed")
+        if collection.find_one(sort=[("date",1)]) is not None: # not empty
+            min_ = collection.find_one(sort=[("date",1)])
+            max_ = collection.find_one(sort=[("date",-1)])["date"]
+            print(min_, max_)
 
-        collection.remove({"date": {"$lte": t_max, "$gte": t_min}})
-        print(collection.count()," after remove")
+            #remove old entries
+            print(collection.count()," currently in table")
 
-        records = convert_glucose_to_nightscout_format(df,df_glucose_col ,df_date_col)
+            f = collection.find({"date": {"$lte": t_max, "$gte": t_min}})
+            print(f.count()," to be removed")
 
-        print(len(records)," to be added")
+            collection.remove({"date": {"$lte": t_max, "$gte": t_min}})
+            print(collection.count()," after remove")
+
+        records = convert_glucose_to_nightscout_format(df, df_glucose_col, df_date_col)
+
+        print(len(records), " to be added")
         #insert new values
         collection.insert_many(records)
 

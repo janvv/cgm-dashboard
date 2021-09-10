@@ -1,6 +1,7 @@
 from adapter import MongoAdapter, MongoAdapterSRV, RestAdapter, OfflineAdapter
 from database import DataBase, DATETIME_COLUMN, GLUCOSE_COLUMN
 from datetime import datetime, time, timedelta
+from configparser import ConfigParser
 
 
 
@@ -22,4 +23,3 @@ else:
 
 x = adapter.query((datetime.now()-timedelta(days=7)).timestamp(), datetime.now().timestamp())
 print(x)
-adapter.client.close()

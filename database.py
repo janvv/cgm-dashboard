@@ -74,10 +74,10 @@ class DataBase:
             self.latest_query_time = datetime_latest_queried_item
             return True
 
-    def get_entries(self, start_datetime, update=True):
+    def get_entries(self, start_datetime, update=True, reload=False):
 
         '#check if we need to update data'
-        if update and (((datetime.now().timestamp()-self.latest_query_time) > 1*60) or (start_datetime.timestamp() < self.earlierst_query_time)):
+        if reload or (update and (((datetime.now().timestamp()-self.latest_query_time) > 1*60) or (start_datetime.timestamp() < self.earlierst_query_time))):
             success = self.update_entries(start_datetime)
             if not success:
                 return None
